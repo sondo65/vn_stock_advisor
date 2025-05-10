@@ -8,7 +8,7 @@ Công cụ cũng sử dụng trí tuệ nhân tạo được cung cấp bởi Go
 Hệ thống cung cấp phân tích toàn diện về cổ phiếu, bao gồm tin tức, phân tích cơ bản và phân tích kỹ thuật và đưa ra khuyến nghị.
 
 ### Lưu ý:
-Dự án này có mục đích chính là nghiên cứu về Large Language Model, Prompt Engineering và CrewAI framework. Từ đó áp dụng vào phân tích chứng khoán một cách tự động.
+Dự án này có mục đích chính là học tập và nghiên cứu về Large Language Model, Prompt Engineering và CrewAI framework. Từ đó áp dụng vào phân tích chứng khoán một cách tự động.
 Các báo cáo phân tích được VN Stock Advisor thu thập từ những nguồn trên Internet và tổng hợp, phân tích bởi trí tuệ nhân tạo.
 Do đó, tất cả các quan điểm, luận điểm, khuyến nghị mua/bán mà VN Stock Advisor đưa ra chỉ mang tính tham khảo. 
 VN Stock Advisor không chịu trách nhiệm đối với bất kỳ khoản thua lỗ từ đầu tư nào do sử dụng các báo cáo phân tích này.
@@ -37,7 +37,7 @@ crewai install
 
 ### Cấu hình
 Tạo file `.env` với các biến môi trường sau:
-Có thể thay thế các MODEL bằng các model khác của Google.
+Có thể thay thế các MODEL bằng các model khác của Google hoặc thậm chí từ OpenAi, Anthropic hay local model như Ollama.
 ```
 GEMINI_API_KEY=your_gemini_api_key
 MODEL=gemini/gemini-2.0-flash-001
@@ -57,6 +57,7 @@ crewai run
 - crewai[tools] >= 0.117.0
 - google-generativeai >= 0.8.4
 - vnstock >= 3.2.4
+- python-dotenv >= 1.1.0
 - Google Gemini API key (đăng kí free từ [Google AI Studio](https://aistudio.google.com/apikey))
 - Serper.dev API key (đăng kí free từ [serper.dev](https://serper.dev/api-key))
 
@@ -74,7 +75,7 @@ The tool also leverages artificial intelligence provided by Google Gemini.
 The system provides comprehensive stock analysis, including news, fundamental analysis, technical analysis, and recommendations.
 
 ### Note:
-This project's main purpose is to research Large Language Models, Prompt Engineering, and the CrewAI framework, applying them to automated stock analysis.
+This project's main purpose is to study and research Large Language Models, Prompt Engineering, and the CrewAI framework, applying them to automated stock analysis.
 The analysis reports are collected by VN Stock Advisor from Internet sources and synthesized, analyzed by artificial intelligence.
 Therefore, all viewpoints, arguments, and buy/sell recommendations provided by VN Stock Advisor are for reference only.
 VN Stock Advisor is not responsible for any investment losses resulting from the use of these analysis reports.
@@ -103,7 +104,7 @@ crewai install
 
 ### Configuration
 Create a `.env` file with the following environment variables:
-You can replace the MODELs with other Google models.
+You can replace the MODELs with other Google models or even from OpenAi, Anthropic, xAI, Ollama...
 ```
 GEMINI_API_KEY=your_gemini_api_key
 MODEL=gemini/gemini-2.0-flash-001
@@ -124,6 +125,7 @@ crewai run
 - crewai[tools] >= 0.117.0
 - google-generativeai >= 0.8.4
 - vnstock >= 3.2.4
+- python-dotenv >= 1.1.0
 - Google Gemini API key (register free from [Google AI Studio](https://aistudio.google.com/apikey))
 - Serper.dev API key (register free from [serper.dev](https://serper.dev/api-key))
 

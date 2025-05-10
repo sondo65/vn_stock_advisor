@@ -6,11 +6,13 @@ from crewai_tools import SerperDevTool, ScrapeWebsiteTool, WebsiteSearchTool
 from vn_stock_advisor.tools.custom_tool import FundDataTool, TechDataTool
 from pydantic import BaseModel, Field
 from typing import List
+from dotenv import load_dotenv
 import os, json
 import warnings
 warnings.filterwarnings("ignore") # Suppress unimportant warnings
 
 # Load environment variables
+load_dotenv()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GEMINI_MODEL = os.environ.get("MODEL")
 SERPER_API_KEY = os.environ.get("SERPER_API_KEY")
@@ -57,13 +59,17 @@ json_source = JSONKnowledgeSource(
 )
 
 # Create Pydantic Models for Structured Output
-class FinalReport(BaseModel):
+class InvestmentDecision(BaseModel):
     stock_ticker: str = Field(..., description="Mã cổ phiếu")
     today_date: str = Field(..., description="Ngày phân tích")
     decision: str = Field(..., description="Quyết định mua, giữ hay bán cổ phiếu")
     macro_reasoning: str = Field(..., description="Giải thích quyết định từ góc nhìn kinh tế vĩ mô và các tin tức liên quan gần đây về cổ phiếu")
     fund_reasoning: str = Field(..., description="Giải thích quyết định từ góc độ phân tích cơ bản")
     tech_reasoning: str = Field(..., description="Giải thích quyết định từ góc độ phân tích kỹ thuật")
+
+class FinalResponse(BaseModel):
+    status: str = Field(default="completed", description="Trạng thái phân tích đã hoàn tất")
+    result: InvestmentDecision
 
 @CrewBase
 class VnStockAdvisor():
@@ -149,8 +155,8 @@ class VnStockAdvisor():
         return Task(
             config=self.tasks_config["investment_decision"],
             context=[self.news_collecting(), self.fundamental_analysis(), self.technical_analysis()],
-            output_json=FinalReport,
-            output_file="final_report.json"
+            output_json=FinalResponse,
+            output_file="final_response.json"
         )
 
     @crew

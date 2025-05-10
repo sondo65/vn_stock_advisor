@@ -3916,6 +3916,7 @@ source = { editable = "." }
 dependencies = [
     { name = "crewai", extra = ["tools"] },
     { name = "google-generativeai" },
+    { name = "python-dotenv" },
     { name = "vnstock" },
 ]
 
@@ -3923,6 +3924,7 @@ dependencies = [
 requires-dist = [
     { name = "crewai", extras = ["tools"], specifier = ">=0.117.0" },
     { name = "google-generativeai", specifier = ">=0.8.4" },
+    { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "vnstock", specifier = ">=3.2.4" },
 ]
 
