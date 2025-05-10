@@ -5,7 +5,7 @@ from crewai.knowledge.source.json_knowledge_source import JSONKnowledgeSource
 from crewai_tools import SerperDevTool, ScrapeWebsiteTool, WebsiteSearchTool
 from vn_stock_advisor.tools.custom_tool import FundDataTool, TechDataTool
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Literal
 from dotenv import load_dotenv
 import os, json
 import warnings
@@ -68,7 +68,7 @@ class InvestmentDecision(BaseModel):
     tech_reasoning: str = Field(..., description="Giải thích quyết định từ góc độ phân tích kỹ thuật")
 
 class FinalResponse(BaseModel):
-    status: str = Field(default="completed", description="Trạng thái phân tích đã hoàn tất")
+    status: Literal["completed"] = Field(default="completed", description="Trạng thái luôn là 'completed'")
     result: InvestmentDecision
 
 @CrewBase

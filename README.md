@@ -20,8 +20,14 @@ Sử dụng hệ thống 4 AI Agents để thực hiện những công việc sa
 - 📈 Tự động thu thập giữ liệu giá, tính toán và phân tích kỹ thuật một cổ phiếu (SMA, EMA, RSI, MACD,...)
 - 💡 Tổng hợp dữ liệu và đề xuất quyết định đầu tư (Mua/Bán/Giữ)
 
-### Cài đặt
+### Webdemo
+- Update sau
+
+### Cài đặt (nếu muốn chạy locally)
 ```bash
+# Cài đặt Python >= 3.10, < 3.13
+https://www.python.org/downloads/
+
 # Cài đặt uv package manager
 https://docs.astral.sh/uv/getting-started/installation/
 
@@ -63,6 +69,8 @@ crewai run
 
 ### Một số lỗi có thể gặp
 - Đôi khi không thể scrap lấy được dữ liệu. Cân nhắc cải tiến scraping tool.
+- Đã thiết lập JSON knowledge source nhưng có vẻ Agent chưa tận dụng được. Cần nghiên cứu thêm.
+- Custom tool sử dụng @tool decorator không hoạt động. Phải chuyển sang dùng BaseTool class mới chạy.
 
 ### Bản quyền
 MIT License
@@ -87,8 +95,14 @@ Uses a system of 4 AI Agents to perform the following tasks:
 - 📈 Automatically collect price data, calculate and perform technical analysis of a stock (SMA, EMA, RSI, MACD,...)
 - 💡 Synthesize data and propose investment decisions (Buy/Sell/Hold)
 
-### Installation
+### Webdemo
+- To be updated later
+
+### Installation (for running locally)
 ```bash
+# Install Python >= 3.10, < 3.13
+https://www.python.org/downloads/
+
 # Install uv package manager
 https://docs.astral.sh/uv/getting-started/installation/
 
@@ -131,6 +145,8 @@ crewai run
 
 ### Known Issues
 - Sometimes may not retrieve financial news report from scrapping correctly. Consider improve tool use.
+- Already implemented JSON knowledge source but seems like Agent still not be able to take advantage of.
+- Custom tool using @tool decorator not working. Using BaseTool class instead.
 
 ### License
 MIT License
