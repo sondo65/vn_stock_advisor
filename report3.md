@@ -1,0 +1,1 @@
+Hiện tại, do lỗi kỹ thuật, tôi không thể truy cập dữ liệu cần thiết để phân tích xu hướng giá cổ phiếu FTP. Vui lòng thử lại sau.

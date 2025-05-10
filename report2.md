@@ -1,0 +1,1 @@
+Hiện tại, tôi không thể thực hiện phân tích cơ bản cho cổ phiếu FTP do gặp lỗi khi truy xuất dữ liệu. Lỗi "single positional indexer is out-of-bounds" cho thấy có vấn đề với nguồn dữ liệu hoặc cách truy cập dữ liệu, khiến tôi không thể thu thập các chỉ số tài chính cần thiết để đánh giá cổ phiếu.

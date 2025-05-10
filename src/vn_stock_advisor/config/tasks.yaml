@@ -1,0 +1,45 @@
+news_collecting:
+  description: >
+    Thu thập các bài báo mới nhất liên quan đến mã cổ phiếu {symbol} và các tin tức vĩ mô quan trọng
+    có thể ảnh hưởng đến thị trường chứng khoán Việt Nam.
+    Sử dụng các trang tin tài chính uy tín hoặc công cụ tìm kiếm.
+    Tóm tắt 5 tin tức quan trọng nhất, tập trung vào ảnh hưởng tiềm năng đến giá cổ phiếu hoặc thị trường.
+
+    Ngày thực hiện: {current_date}
+  expected_output: >
+    Một bản tóm tắt ngắn gọn bằng tiếng Việt gồm 5 bài báo đáng chú ý nhất về {symbol},
+    bao gồm liên kết nguồn tin và mô tả 3-5 câu cho mỗi bài.
+  agent: stock_news_researcher
+
+fundamental_analysis:
+  description: >
+    Phân tích cơ bản mã cổ phiếu {symbol} dựa trên các chỉ số như P/E, P/B, ROE, D/E, EPS, EV/EBITDA, biên lợi nhuận, tăng trưởng doanh thu và lợi nhuận.
+    So sánh các chỉ số đó với tỷ lệ P/E, P/B trung bình của từng ngành.
+    Từ đó đưa ra nhận định về mức định giá của cổ phiếu: rẻ, đắt hay hợp lý.
+
+    Ngày thực hiện: {current_date}
+  expected_output: >
+    Một bản báo cáo 2–3 đoạn bằng tiếng Việt nêu rõ các chỉ số chính và đánh giá tổng thể
+    cổ phiếu đang bị định giá thấp, cao hay đúng giá.
+  agent: fundamental_analyst
+
+technical_analysis:
+  description: >
+    Phân tích xu hướng giá của cổ phiếu {symbol} trong thời gian gần đây bằng cách sử dụng các chỉ báo kỹ thuật như
+    đường trung bình động SMA và EMA, RSI, MACD, và vùng hỗ trợ/kháng cự.
+
+    Ngày thực hiện: {current_date}
+  expected_output: >
+    Báo cáo ngắn gọn bằng tiếng Việt về xu hướng kỹ thuật hiện tại, các tín hiệu gần đây,
+    và đánh giá về động lượng thị trường.
+  agent: technical_analyst
+
+investment_decision:
+  description: >
+    Đưa ra khuyến nghị đầu tư dựa trên kết quả phân tích cơ bản và kỹ thuật.
+    Có nên mua, bán hay giữ cổ phiếu {symbol}? Nếu chưa nên hành động, đề xuất điều kiện hoặc thời điểm phù hợp hơn.
+
+    Câu trả lời cuối cùng PHẢI là một khuyến nghị rõ ràng và có giải thích.
+  expected_output: >
+    Một quyết định đầu tư (mua/bán/giữ) bằng tiếng Việt có lý do rõ ràng. Nếu chọn giữ, nêu rõ yếu tố cần theo dõi trước khi ra quyết định.
+  agent: investment_strategist

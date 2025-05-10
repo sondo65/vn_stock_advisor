@@ -1,0 +1,25 @@
+[project]
+name = "vn_stock_advisor"
+version = "0.1.0"
+description = "vn_stock_advisor using Multiple AI Agent - powered by Google Gemini and CrewAI"
+authors = [{ name = "Duong Anh Minh", email = "duonganhminhapple@gmail.com" }]
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "crewai[tools]>=0.117.0",
+    "google-generativeai>=0.8.4",
+    "vnstock>=3.2.4",
+]
+
+[project.scripts]
+vn_stock_advisor = "vn_stock_advisor.main:run"
+run_crew = "vn_stock_advisor.main:run"
+train = "vn_stock_advisor.main:train"
+replay = "vn_stock_advisor.main:replay"
+test = "vn_stock_advisor.main:test"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.crewai]
+type = "crew"
