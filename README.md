@@ -61,7 +61,7 @@ crewai run
 - Serper.dev API key (đăng kí free từ [serper.dev](https://serper.dev/api-key))
 
 ### Một số lỗi có thể gặp
-- 1 số cổ phiếu không lấy được dữ liệu báo cáo tài chính (FTP). Cân nhắc đổi nguồn dữ liệu từ TCBS sang VCI.
+- Đôi khi không thể scrap lấy được dữ liệu. Cân nhắc cải tiến scraping tool.
 
 ### Bản quyền
 MIT License
@@ -128,7 +128,7 @@ crewai run
 - Serper.dev API key (register free from [serper.dev](https://serper.dev/api-key))
 
 ### Known Issues
-- Some stocks may not retrieve financial report data (FTP). Consider changing the data source from TCBS to VCI.
+- Sometimes may not retrieve financial news report from scrapping correctly. Consider improve tool use.
 
 ### License
 MIT License
