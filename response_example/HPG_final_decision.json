@@ -1,0 +1,11 @@
+{
+  "status": "completed",
+  "result": {
+    "stock_ticker": "HPG",
+    "today_date": "2025-05-11",
+    "decision": "Nắm giữ",
+    "macro_reasoning": "CPTPP có thể hỗ trợ xuất khẩu của HPG trong bối cảnh thương chiến, nhưng cần theo dõi thêm các chính sách vĩ mô và tác động của việc sắp xếp đơn vị hành chính cấp tỉnh, cấp xã.",
+    "fund_reasoning": "HPG đang được định giá hợp lý so với ngành, với P/E thấp hơn và P/B tương đương. Việc phát hành cổ phiếu để trả cổ tức có thể gây pha loãng nhưng cũng thể hiện khả năng chia sẻ lợi nhuận. Cần theo dõi thêm về tăng trưởng doanh thu và lợi nhuận trong các quý tới.",
+    "tech_reasoning": "Xu hướng dài hạn là giảm, nhưng MACD cho tín hiệu mua tiềm năng. RSI trung tính. Giá đang dao động giữa dải Bollinger. Cần theo dõi thêm diễn biến giá và các ngưỡng hỗ trợ/kháng cự trước khi đưa ra quyết định mua/bán."
+  }
+}

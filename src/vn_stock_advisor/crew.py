@@ -67,10 +67,6 @@ class InvestmentDecision(BaseModel):
     fund_reasoning: str = Field(..., description="Giải thích quyết định từ góc độ phân tích cơ bản")
     tech_reasoning: str = Field(..., description="Giải thích quyết định từ góc độ phân tích kỹ thuật")
 
-class FinalResponse(BaseModel):
-    status: Literal["completed"] = Field(default="completed", description="Trạng thái luôn là 'completed'")
-    result: InvestmentDecision
-
 @CrewBase
 class VnStockAdvisor():
     """VnStockAdvisor crew"""
@@ -131,7 +127,7 @@ class VnStockAdvisor():
         return Task(
             config=self.tasks_config["news_collecting"],
             async_execution=True,
-            output_file="report1.md"
+            output_file="market_analysis.md"
         )
 
     @task
@@ -139,7 +135,7 @@ class VnStockAdvisor():
         return Task(
             config=self.tasks_config["fundamental_analysis"],
             async_execution=True,
-            output_file="report2.md"
+            output_file="fundamental_analysis.md"
         )
 
     @task
@@ -147,7 +143,7 @@ class VnStockAdvisor():
         return Task(
             config=self.tasks_config["technical_analysis"],
             async_execution=True,
-            output_file="report3.md"
+            output_file="technical_analysis.md"
         )
     
     @task
@@ -155,8 +151,8 @@ class VnStockAdvisor():
         return Task(
             config=self.tasks_config["investment_decision"],
             context=[self.news_collecting(), self.fundamental_analysis(), self.technical_analysis()],
-            output_json=FinalResponse,
-            output_file="final_response.json"
+            output_json=InvestmentDecision,
+            output_file="final_decision.json"
         )
 
     @crew
