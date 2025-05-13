@@ -1,3 +1,0 @@
-Dựa trên các chỉ số tài chính, cổ phiếu MWG có P/E là 21.5 và P/B là 3.2. So sánh với trung bình ngành "Bán lẻ chuyên dụng" (P/E = 18.10, P/B = 2.76), có thể thấy MWG đang được định giá cao hơn so với các doanh nghiệp cùng ngành. ROE của MWG là 0.16 và D/E là 0.9.
-
-Để đưa ra kết luận cuối cùng về việc cổ phiếu MWG đang bị định giá rẻ, đắt hay hợp lý, cần xem xét thêm các yếu tố định tính như vị thế cạnh tranh của MWG trên thị trường bán lẻ, khả năng tăng trưởng trong tương lai, và các yếu tố vĩ mô khác. Tuy nhiên, dựa trên các chỉ số P/E và P/B, có thể nhận định ban đầu rằng MWG đang được định giá ở mức tương đối cao so với trung bình ngành. Nhà đầu tư nên cân nhắc kỹ lưỡng các yếu tố khác trước khi đưa ra quyết định đầu tư.
