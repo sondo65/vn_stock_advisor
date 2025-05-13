@@ -13,9 +13,12 @@ news_collecting:
 
 fundamental_analysis:
   description: >
-    Phân tích cơ bản mã cổ phiếu {symbol} dựa trên các chỉ số như P/E, P/B, ROE, D/E, EPS, EV/EBITDA, biên lợi nhuận, tăng trưởng doanh thu và lợi nhuận.
-    So sánh các chỉ số đó với tỷ lệ P/E, P/B trung bình của từng ngành.
+    Phân tích cơ bản mã cổ phiếu {symbol} dựa trên các chỉ số như
+    P/E, P/B, ROE, D/E, EPS, EV/EBITDA, biên lợi nhuận, tăng trưởng doanh thu và lợi nhuận.
+    Xác định mã cổ phiếu {symbol} thuộc ngành nào và so sánh các chỉ số P/E, P/B với trung bình của ngành đó.
     Từ đó đưa ra nhận định về mức định giá của cổ phiếu: rẻ, đắt hay hợp lý.
+    Có thể tham khảo P/E, P/B trung bình ngành ở thư mục 'knowledge/PE_PB_industry_average.json'.
+    Nếu không có dữ liệu trung bình ngành, có thể sử dụng dữ liệu của 1 ngành tương đương để so sánh.
 
     Ngày thực hiện: {current_date}
   expected_output: >
@@ -30,16 +33,18 @@ technical_analysis:
 
     Ngày thực hiện: {current_date}
   expected_output: >
-    Báo cáo ngắn gọn bằng tiếng Việt về xu hướng kỹ thuật hiện tại, các tín hiệu gần đây,
+    Một bản báo cáo 2–3 đoạn bằng tiếng Việt về xu hướng kỹ thuật hiện tại, các tín hiệu gần đây,
     và đánh giá về động lượng thị trường.
   agent: technical_analyst
 
 investment_decision:
   description: >
-    Đưa ra khuyến nghị đầu tư dựa trên kết quả phân tích cơ bản và kỹ thuật.
-    Có nên mua, bán hay giữ cổ phiếu {symbol}? Nếu chưa nên hành động, đề xuất điều kiện hoặc thời điểm phù hợp hơn.
+    Đưa ra khuyến nghị đầu tư dựa trên kết quả từ news_collecting, fundamental_analysis và technical_analysis.
+    Có nên mua, bán hay giữ cổ phiếu {symbol}?
+    Nếu các dấu hiệu chưa rõ ràng, hoặc nếu chưa nên hành động, đề xuất điều kiện hoặc thời điểm phù hợp hơn.
 
     Câu trả lời cuối cùng PHẢI là một khuyến nghị rõ ràng và có giải thích.
   expected_output: >
-    Một quyết định đầu tư (mua/bán/giữ) bằng tiếng Việt có lý do rõ ràng. Nếu chọn giữ, nêu rõ yếu tố cần theo dõi trước khi ra quyết định.
+    Một quyết định đầu tư (mua/bán/giữ) bằng tiếng Việt có lý do rõ ràng.
+    Nếu chọn giữ, nêu rõ yếu tố cần theo dõi trước khi ra quyết định.
   agent: investment_strategist
