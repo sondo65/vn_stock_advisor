@@ -18,7 +18,7 @@ def run():
     Run the crew.
     """
     inputs = {
-        "symbol": "MWG",
+        "symbol": "HPG",
         "current_date": str(date.today())
     }
     
