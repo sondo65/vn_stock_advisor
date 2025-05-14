@@ -1,4 +1,4 @@
-# VN Stock Advisor (v.0.1.0)
+# VN Stock Advisor (v.0.1.2)
 
 ## 🇻🇳 Tiếng Việt
 
@@ -69,8 +69,9 @@ crewai run
 
 ### Một số lỗi có thể gặp
 - Đôi khi không thể scrap lấy được dữ liệu. Cân nhắc cải tiến scraping tool.
-- Đã thiết lập JSON knowledge source nhưng có vẻ Agent chưa tận dụng được. Cần nghiên cứu thêm.
+- Đã thiết lập JSON knowledge source nhưng có vẻ Agent chưa tận dụng được. Cần nghiên cứu thêm. Chuyển sang dùng FileReadTool
 - Custom tool sử dụng @tool decorator không hoạt động. Phải chuyển sang dùng BaseTool class mới chạy.
+- FileReadTool mặc định ko dùng utf-8 encoding. Phải viết lại tool này.
 
 ### Bản quyền
 MIT License
@@ -145,8 +146,9 @@ crewai run
 
 ### Known Issues
 - Sometimes may not retrieve financial news report from scrapping correctly. Consider improve tool use.
-- Already implemented JSON knowledge source but seems like Agent still not be able to take advantage of.
+- Already implemented JSON knowledge source but seems like Agent still not be able to take advantage of. Using FileReadTool instead.
 - Custom tool using @tool decorator not working. Using BaseTool class instead.
+- FileReadTool not using utf-8 encoding. Need to re-write this tool instead.
 
 ### License
 MIT License

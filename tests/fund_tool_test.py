@@ -7,6 +7,11 @@ def fund_data_tool(symbol: str) -> str:
         stock = Vnstock().stock(symbol=symbol, source="TCBS")
         financial_ratios = stock.finance.ratio(period="quarter")
         income_df = stock.finance.income_statement(period="quarter")
+        company = Vnstock().stock(symbol=symbol, source='TCBS').company
+
+        # Get company full name & industry
+        full_name = company.profile().get("company_name").iloc[0]
+        industry = company.overview().get("industry").iloc[0]
 
         # Get data from the latest row of DataFrame for financial ratios
         latest_ratios = financial_ratios.iloc[0]
@@ -37,6 +42,8 @@ def fund_data_tool(symbol: str) -> str:
             quarterly_trends.append(quarter_info)
         
         return f"""Mã cổ phiếu: {symbol}
+        Tên công ty: {full_name}
+        Ngành: {industry}
         Tỷ lệ P/E: {pe_ratio}
         Tỷ lệ P/B: {pb_ratio}
         Tỷ lệ ROE: {roe}

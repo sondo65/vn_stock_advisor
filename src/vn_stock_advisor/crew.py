@@ -3,7 +3,7 @@ from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.knowledge.source.json_knowledge_source import JSONKnowledgeSource
 from crewai_tools import SerperDevTool, ScrapeWebsiteTool, WebsiteSearchTool
-from vn_stock_advisor.tools.custom_tool import FundDataTool, TechDataTool
+from vn_stock_advisor.tools.custom_tool import FundDataTool, TechDataTool, FileReadTool
 from pydantic import BaseModel, Field
 from typing import List, Literal
 from dotenv import load_dotenv
@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore") # Suppress unimportant warnings
 load_dotenv()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GEMINI_MODEL = os.environ.get("MODEL")
+GEMINI_REASONING_MODEL = os.environ.get("MODEL_REASONING")
 SERPER_API_KEY = os.environ.get("SERPER_API_KEY")
 
 # Create an LLM with a temperature of 0 to ensure deterministic outputs
@@ -25,9 +26,18 @@ gemini_llm = LLM(
     max_tokens=4096
 )
 
+# Create another LLM with a temperature of 0 to ensure deterministic outputs
+gemini_reasoning_llm = LLM(
+    model=GEMINI_REASONING_MODEL,
+    api_key=GEMINI_API_KEY,
+    temperature=0,
+    max_tokens=4096
+)
+
 # Initialize the tools
+file_read_tool = FileReadTool(file_path="knowledge/PE_PB_industry_average.json")
 fund_tool=FundDataTool()
-tech_tool=TechDataTool()
+tech_tool=TechDataTool(result_as_answer=True)
 scrape_tool = ScrapeWebsiteTool()
 search_tool = SerperDevTool(
     country="vn",
@@ -61,6 +71,8 @@ json_source = JSONKnowledgeSource(
 # Create Pydantic Models for Structured Output
 class InvestmentDecision(BaseModel):
     stock_ticker: str = Field(..., description="Mã cổ phiếu")
+    full_name: str = Field(..., description="Tên đầy đủ công ty")
+    industry: str =Field(..., description="Lĩnh vực kinh doanh")
     today_date: str = Field(..., description="Ngày phân tích")
     decision: str = Field(..., description="Quyết định mua, giữ hay bán cổ phiếu")
     macro_reasoning: str = Field(..., description="Giải thích quyết định từ góc nhìn kinh tế vĩ mô và các tin tức liên quan gần đây về cổ phiếu")
@@ -91,7 +103,7 @@ class VnStockAdvisor():
             config=self.agents_config["fundamental_analyst"],
             verbose=True,
             llm=gemini_llm,
-            tools=[fund_tool],
+            tools=[fund_tool, file_read_tool],
             knowledge_sources=[json_source],
             max_rpm=10,
             embedder={
@@ -118,7 +130,7 @@ class VnStockAdvisor():
         return Agent(
             config=self.agents_config["investment_strategist"],
             verbose=True,
-            llm=gemini_llm,
+            llm=gemini_reasoning_llm,
             max_rpm=10
         )
 

@@ -1,4 +1,4 @@
-from typing import Type
+from typing import Type, Optional, Any
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 from vnstock import Vnstock
@@ -21,6 +21,11 @@ class FundDataTool(BaseTool):
             stock = Vnstock().stock(symbol=argument, source="TCBS")
             financial_ratios = stock.finance.ratio(period="quarter")
             income_df = stock.finance.income_statement(period="quarter")
+            company = Vnstock().stock(symbol=argument, source='TCBS').company
+
+            # Get company full name & industry
+            full_name = company.profile().get("company_name").iloc[0]
+            industry = company.overview().get("industry").iloc[0]
 
             # Get data from the latest row of DataFrame for financial ratios
             latest_ratios = financial_ratios.iloc[0]
@@ -51,6 +56,8 @@ class FundDataTool(BaseTool):
                 quarterly_trends.append(quarter_info)
             
             return f"""Mã cổ phiếu: {argument}
+            Tên công ty: {full_name}
+            Ngành: {industry}
             Tỷ lệ P/E: {pe_ratio}
             Tỷ lệ P/B: {pb_ratio}
             Tỷ lệ ROE: {roe}
@@ -94,14 +101,21 @@ class TechDataTool(BaseTool):
             # Identify support and resistance levels
             support_resistance = self._find_support_resistance(price_data)
             
-            # Get current price
+            # Get current price and 4 recent prices
             current_price = price_data['close'].iloc[-1]
+            recent_prices = price_data['close'].iloc[-5:-1]
             
             # Format result
             latest_indicators = tech_data.iloc[-1]
             
             result = f"""Mã cổ phiếu: {argument}
             Giá hiện tại: {current_price:,.2f} VND
+
+            GIÁ ĐÓNG CỬA GẦN NHẤT:
+            - T-1: {recent_prices.iloc[-1]:,.2f} VND
+            - T-2: {recent_prices.iloc[-2]:,.2f} VND
+            - T-3: {recent_prices.iloc[-3]:,.2f} VND
+            - T-4: {recent_prices.iloc[-4]:,.2f} VND
             
             CHỈ SỐ KỸ THUẬT (cập nhật mới nhất):
             - SMA (20): {latest_indicators['SMA_20']:,.2f}
@@ -121,10 +135,10 @@ class TechDataTool(BaseTool):
             
             VÙNG HỖ TRỢ VÀ KHÁNG CỰ:
             {support_resistance}
-            
-            NHẬN ĐỊNH KỸ THUẬT:
-            {self._get_technical_analysis(latest_indicators, current_price, support_resistance)}
             """
+            # Temporary comment out technical analysis
+            # NHẬN ĐỊNH KỸ THUẬT:
+            # {self._get_technical_analysis(latest_indicators, current_price, support_resistance)}
             
             return result
             
@@ -289,3 +303,94 @@ class TechDataTool(BaseTool):
                 analysis.append("- Bollinger Bands: TRUNG TÍNH (Giá trong khoảng giữa dải BB)")
         
         return "\n".join(analysis)
+    
+# Re-write basic FileReadTool but with utf-8 encoding
+class FileReadToolSchema(BaseModel):
+    """Input for FileReadTool."""
+
+    file_path: str = Field(..., description="Mandatory file full path to read the file")
+    start_line: Optional[int] = Field(1, description="Line number to start reading from (1-indexed)")
+    line_count: Optional[int] = Field(None, description="Number of lines to read. If None, reads the entire file")
+
+
+class FileReadTool(BaseTool):
+    """A tool for reading file contents.
+
+    This tool inherits its schema handling from BaseTool to avoid recursive schema
+    definition issues. The args_schema is set to FileReadToolSchema which defines
+    the required file_path parameter. The schema should not be overridden in the
+    constructor as it would break the inheritance chain and cause infinite loops.
+
+    The tool supports two ways of specifying the file path:
+    1. At construction time via the file_path parameter
+    2. At runtime via the file_path parameter in the tool's input
+
+    Args:
+        file_path (Optional[str]): Path to the file to be read. If provided,
+            this becomes the default file path for the tool.
+        **kwargs: Additional keyword arguments passed to BaseTool.
+
+    Example:
+        >>> tool = FileReadTool(file_path="/path/to/file.txt")
+        >>> content = tool.run()  # Reads /path/to/file.txt
+        >>> content = tool.run(file_path="/path/to/other.txt")  # Reads other.txt
+        >>> content = tool.run(file_path="/path/to/file.txt", start_line=100, line_count=50)  # Reads lines 100-149
+    """
+
+    name: str = "Read a file's content"
+    description: str = "A tool that reads the content of a file. To use this tool, provide a 'file_path' parameter with the path to the file you want to read. Optionally, provide 'start_line' to start reading from a specific line and 'line_count' to limit the number of lines read."
+    args_schema: Type[BaseModel] = FileReadToolSchema
+    file_path: Optional[str] = None
+
+    def __init__(self, file_path: Optional[str] = None, **kwargs: Any) -> None:
+        """Initialize the FileReadTool.
+
+        Args:
+            file_path (Optional[str]): Path to the file to be read. If provided,
+                this becomes the default file path for the tool.
+            **kwargs: Additional keyword arguments passed to BaseTool.
+        """
+        if file_path is not None:
+            kwargs["description"] = (
+                f"A tool that reads file content. The default file is {file_path}, but you can provide a different 'file_path' parameter to read another file. You can also specify 'start_line' and 'line_count' to read specific parts of the file."
+            )
+
+        super().__init__(**kwargs)
+        self.file_path = file_path
+
+    def _run(
+        self,
+        **kwargs: Any,
+    ) -> str:
+        file_path = kwargs.get("file_path", self.file_path)
+        start_line = kwargs.get("start_line", 1)
+        line_count = kwargs.get("line_count", None)
+
+        if file_path is None:
+            return (
+                "Error: No file path provided. Please provide a file path either in the constructor or as an argument."
+            )
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as file:
+                if start_line == 1 and line_count is None:
+                    return file.read()
+
+                start_idx = max(start_line - 1, 0)
+
+                selected_lines = [
+                    line
+                    for i, line in enumerate(file)
+                    if i >= start_idx and (line_count is None or i < start_idx + line_count)
+                ]
+
+                if not selected_lines and start_idx > 0:
+                    return f"Error: Start line {start_line} exceeds the number of lines in the file."
+
+                return "".join(selected_lines)
+        except FileNotFoundError:
+            return f"Error: File not found at path: {file_path}"
+        except PermissionError:
+            return f"Error: Permission denied when trying to read file: {file_path}"
+        except Exception as e:
+            return f"Error: Failed to read file {file_path}. {str(e)}"

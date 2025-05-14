@@ -30,14 +30,21 @@ def tech_data_tool(symbol: str) -> str:
         # Identify support and resistance levels
         support_resistance = find_support_resistance(price_data)
         
-        # Get current price
+        # Get current price and 4 recent prices
         current_price = price_data['close'].iloc[-1]
+        recent_prices = price_data['close'].iloc[-5:-1]
         
         # Format result
         latest_indicators = tech_data.iloc[-1]
         
         result = f"""Mã cổ phiếu: {symbol}
         Giá hiện tại: {current_price:,.2f} VND
+
+        GIÁ ĐÓNG CỬA GẦN NHẤT:
+        - T-1: {recent_prices.iloc[-1]:,.2f} VND
+        - T-2: {recent_prices.iloc[-2]:,.2f} VND
+        - T-3: {recent_prices.iloc[-3]:,.2f} VND
+        - T-4: {recent_prices.iloc[-4]:,.2f} VND
         
         CHỈ SỐ KỸ THUẬT (cập nhật mới nhất):
         - SMA (20): {latest_indicators['SMA_20']:,.2f}
