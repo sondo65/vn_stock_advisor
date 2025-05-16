@@ -1,13 +1,12 @@
 news_collecting:
   description: >
-    Thu thập các bài báo mới nhất liên quan đến mã cổ phiếu {symbol} và các tin tức vĩ mô quan trọng
-    có thể ảnh hưởng đến thị trường chứng khoán Việt Nam.
+    Thu thập các bài báo mới nhất trong vòng 3 tháng kể từ ngày hôm nay ({current_date}) liên quan tới
+    các tin tức vĩ mô và các chính sách quan trọng có thể ảnh hưởng đến thị trường chứng khoán Việt Nam.
     Sử dụng các trang tin tài chính uy tín hoặc công cụ tìm kiếm.
     Tóm tắt 5 tin tức quan trọng nhất, tập trung vào ảnh hưởng tiềm năng đến giá cổ phiếu hoặc thị trường.
-
-    Ngày thực hiện: {current_date}
   expected_output: >
-    Một bản tóm tắt ngắn gọn bằng tiếng Việt gồm 5 bài báo đáng chú ý nhất về {symbol},
+    Một bản tóm tắt ngắn gọn bằng tiếng Việt gồm 5 bài báo đáng chú ý nhất về các tin tức vĩ mô
+    và các chính sách quan trọng có thể ảnh hưởng đến thị trường chứng khoán Việt Nam,
     bao gồm liên kết nguồn tin và mô tả 3-5 câu cho mỗi bài.
   agent: stock_news_researcher
 

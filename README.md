@@ -16,8 +16,8 @@ VN Stock Advisor không chịu trách nhiệm đối với bất kỳ khoản th
 ### Tính năng
 Sử dụng hệ thống 4 AI Agents để thực hiện những công việc sau:
 - 🔍 Tự động search google và scrape các trang web để thu thập và phân tích tin tức mới nhất về cổ phiếu
-- 📊 Tự động gọi API để lấy dữ liệu và phân tích cơ bản một cổ phiếu (P/E, P/B, ROE, EPS,...)
-- 📈 Tự động thu thập giữ liệu giá, tính toán và phân tích kỹ thuật một cổ phiếu (SMA, EMA, RSI, MACD,...)
+- 📊 Tự động gọi API và RAG để lấy dữ liệu và phân tích cơ bản (P/E, P/B, ROE, EPS,...)
+- 📈 Tự động thu thập giữ liệu giá từ VCI hoặc TCBS, tính toán và phân tích kỹ thuật (SMA, EMA, RSI, MACD,...)
 - 💡 Tổng hợp dữ liệu và đề xuất quyết định đầu tư (Mua/Bán/Giữ)
 
 ### Webdemo
@@ -48,6 +48,7 @@ Có thể thay thế các MODEL bằng các model khác của Google hoặc th�
 GEMINI_API_KEY=your_gemini_api_key
 MODEL=gemini/gemini-2.0-flash-001
 SERPER_API_KEY=your_serper_api_key
+FIRECRAWL_API_KEY=your_firecrawl_api_key
 ```
 
 ### Sử dụng
@@ -61,15 +62,16 @@ crewai run
 ### Yêu cầu
 - Python >= 3.10, < 3.13
 - crewai[tools] >= 0.117.0
+- firecrawl-py>=2.5.4
 - google-generativeai >= 0.8.4
 - vnstock >= 3.2.4
 - python-dotenv >= 1.1.0
 - Google Gemini API key (đăng kí free từ [Google AI Studio](https://aistudio.google.com/apikey))
 - Serper.dev API key (đăng kí free từ [serper.dev](https://serper.dev/api-key))
+- Firecrawl.dev API key (đăng kí free từ [firecrawl.dev](https://www.firecrawl.dev/app/api-keys))
 
 ### Một số lỗi có thể gặp
-- Đôi khi không thể scrap lấy được dữ liệu. Cân nhắc cải tiến scraping tool.
-- Đã thiết lập JSON knowledge source nhưng có vẻ Agent chưa tận dụng được. Cần nghiên cứu thêm. Chuyển sang dùng FileReadTool
+- Đã thiết lập JSON knowledge source nhưng có vẻ Agent chưa tận dụng được -> chuyển sang dùng FileReadTool
 - Custom tool sử dụng @tool decorator không hoạt động. Phải chuyển sang dùng BaseTool class mới chạy.
 - FileReadTool mặc định ko dùng utf-8 encoding. Phải viết lại tool này.
 
@@ -92,8 +94,8 @@ VN Stock Advisor is not responsible for any investment losses resulting from the
 ### Features
 Uses a system of 4 AI Agents to perform the following tasks:
 - 🔍 Automatically search Google and scrape websites to collect and analyze the latest stock news
-- 📊 Automatically call APIs to retrieve data and perform fundamental analysis of a stock (P/E, P/B, ROE, EPS,...)
-- 📈 Automatically collect price data, calculate and perform technical analysis of a stock (SMA, EMA, RSI, MACD,...)
+- 📊 Automatically call APIs and RAG to retrieve data and perform fundamental analysis of a stock (P/E, P/B, ROE, EPS,...)
+- 📈 Automatically collect price data from API, calculate and perform technical analysis of a stock (SMA, EMA, RSI, MACD,...)
 - 💡 Synthesize data and propose investment decisions (Buy/Sell/Hold)
 
 ### Webdemo
@@ -124,6 +126,7 @@ You can replace the MODELs with other Google models or even from OpenAi, Anthrop
 GEMINI_API_KEY=your_gemini_api_key
 MODEL=gemini/gemini-2.0-flash-001
 SERPER_API_KEY=your_serper_api_key
+FIRECRAWL_API_KEY=your_firecrawl_api_key
 ```
 
 ### Usage
@@ -138,14 +141,15 @@ crewai run
 ### Requirements
 - Python >= 3.10, < 3.13
 - crewai[tools] >= 0.117.0
+- firecrawl-py>=2.5.4
 - google-generativeai >= 0.8.4
 - vnstock >= 3.2.4
 - python-dotenv >= 1.1.0
 - Google Gemini API key (register free from [Google AI Studio](https://aistudio.google.com/apikey))
 - Serper.dev API key (register free from [serper.dev](https://serper.dev/api-key))
+- Firecrawl.dev API key (register free từ [firecrawl.dev](https://www.firecrawl.dev/app/api-keys))
 
 ### Known Issues
-- Sometimes may not retrieve financial news report from scrapping correctly. Consider improve tool use.
 - Already implemented JSON knowledge source but seems like Agent still not be able to take advantage of. Using FileReadTool instead.
 - Custom tool using @tool decorator not working. Using BaseTool class instead.
 - FileReadTool not using utf-8 encoding. Need to re-write this tool instead.
