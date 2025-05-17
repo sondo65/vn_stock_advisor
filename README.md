@@ -1,4 +1,4 @@
-# VN Stock Advisor (v.0.1.2)
+# VN Stock Advisor (v.0.2.0)
 
 ## 🇻🇳 Tiếng Việt
 
@@ -23,7 +23,7 @@ Sử dụng hệ thống 4 AI Agents để thực hiện những công việc sa
 ### Webdemo
 - Update sau
 
-### Cài đặt (nếu muốn chạy locally)
+### Cài đặt (nếu muốn chạy local)
 ```bash
 # Cài đặt Python >= 3.10, < 3.13
 https://www.python.org/downloads/
@@ -46,7 +46,8 @@ Tạo file `.env` với các biến môi trường sau:
 Có thể thay thế các MODEL bằng các model khác của Google hoặc thậm chí từ OpenAi, Anthropic hay local model như Ollama.
 ```
 GEMINI_API_KEY=your_gemini_api_key
-MODEL=gemini/gemini-2.0-flash-001
+GEMINI_MODEL=gemini/gemini-2.0-flash-001
+GEMINI_REASONING_MODEL=gemini/gemini-2.5-flash-preview-04-17
 SERPER_API_KEY=your_serper_api_key
 FIRECRAWL_API_KEY=your_firecrawl_api_key
 ```
@@ -124,7 +125,8 @@ Create a `.env` file with the following environment variables:
 You can replace the MODELs with other Google models or even from OpenAi, Anthropic, xAI, Ollama...
 ```
 GEMINI_API_KEY=your_gemini_api_key
-MODEL=gemini/gemini-2.0-flash-001
+GEMINI_MODEL=gemini/gemini-2.0-flash-001
+GEMINI_REASONING_MODEL=gemini/gemini-2.5-flash-preview-04-17
 SERPER_API_KEY=your_serper_api_key
 FIRECRAWL_API_KEY=your_firecrawl_api_key
 ```
