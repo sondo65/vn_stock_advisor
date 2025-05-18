@@ -2,7 +2,7 @@ from crewai import Agent, Crew, Process, Task, LLM
 from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.knowledge.source.json_knowledge_source import JSONKnowledgeSource
-from crewai_tools import SerperDevTool, ScrapeWebsiteTool, WebsiteSearchTool
+from crewai_tools import SerperDevTool, ScrapeWebsiteTool, WebsiteSearchTool, FirecrawlScrapeWebsiteTool
 from vn_stock_advisor.tools.custom_tool import FundDataTool, TechDataTool, FileReadTool
 from pydantic import BaseModel, Field
 from typing import List, Literal
@@ -17,6 +17,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GEMINI_MODEL = os.environ.get("MODEL")
 GEMINI_REASONING_MODEL = os.environ.get("MODEL_REASONING")
 SERPER_API_KEY = os.environ.get("SERPER_API_KEY")
+FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
 
 # Create an LLM with a temperature of 0 to ensure deterministic outputs
 gemini_llm = LLM(
@@ -38,7 +39,7 @@ gemini_reasoning_llm = LLM(
 file_read_tool = FileReadTool(file_path="knowledge/PE_PB_industry_average.json")
 fund_tool=FundDataTool()
 tech_tool=TechDataTool(result_as_answer=True)
-scrape_tool = ScrapeWebsiteTool()
+scrape_tool = FirecrawlScrapeWebsiteTool()
 search_tool = SerperDevTool(
     country="vn",
     locale="vn",
