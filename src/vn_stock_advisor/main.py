@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 import sys
 import warnings
 
@@ -18,7 +17,7 @@ def run():
     Run the crew.
     """
     inputs = {
-        "symbol": "FPT",
+        "symbol": "HPG",
         "current_date": str(date.today())
     }
     
