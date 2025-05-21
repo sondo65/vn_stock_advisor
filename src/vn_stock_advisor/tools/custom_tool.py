@@ -67,6 +67,8 @@ class FundDataTool(BaseTool):
             return f"""Mã cổ phiếu: {argument}
             Tên công ty: {full_name}
             Ngành: {industry}
+            Ngày phân tích: {datetime.now().strftime('%Y-%m-%d')}
+            
             Tỷ lệ P/E: {pe_ratio}
             Tỷ lệ P/B: {pb_ratio}
             Tỷ lệ ROE: {roe}
@@ -91,6 +93,11 @@ class TechDataTool(BaseTool):
         try:
             # Initialize vnstock and get historical price data
             stock = Vnstock().stock(symbol=argument, source="TCBS")
+            company = Vnstock().stock(symbol=argument, source='TCBS').company
+
+            # Get company full name & industry
+            full_name = company.profile().get("company_name").iloc[0]
+            industry = company.overview().get("industry").iloc[0]
             
             # Get price data for the last 200 days
             end_date = datetime.now()
@@ -110,23 +117,29 @@ class TechDataTool(BaseTool):
             # Identify support and resistance levels
             support_resistance = self._find_support_resistance(price_data)
             
-            # Get current price and 4 recent prices
+            # Get recent price and volume data
             current_price = price_data['close'].iloc[-1]
             recent_prices = price_data['close'].iloc[-5:-1]
+            current_volume = price_data['volume'].iloc[-1]
+            recent_volumes = price_data['volume'].iloc[-5:-1]
             
             # Format result
             latest_indicators = tech_data.iloc[-1]
             
             result = f"""Mã cổ phiếu: {argument}
+            Tên công ty: {full_name}
+            Ngành: {industry}
+            Ngày phân tích: {datetime.now().strftime('%Y-%m-%d')}
             Giá hiện tại: {current_price:,.2f} VND
+            Khối lượng giao dịch: {current_volume:,.0f} cp
 
             GIÁ ĐÓNG CỬA GẦN NHẤT:
-            - T-1: {recent_prices.iloc[-1]:,.2f} VND
-            - T-2: {recent_prices.iloc[-2]:,.2f} VND
-            - T-3: {recent_prices.iloc[-3]:,.2f} VND
-            - T-4: {recent_prices.iloc[-4]:,.2f} VND
+            - T-1: {recent_prices.iloc[-1]:,.2f} VND (Khối lượng: {recent_volumes.iloc[-1]:,.0f} cp)
+            - T-2: {recent_prices.iloc[-2]:,.2f} VND (Khối lượng: {recent_volumes.iloc[-2]:,.0f} cp)
+            - T-3: {recent_prices.iloc[-3]:,.2f} VND (Khối lượng: {recent_volumes.iloc[-3]:,.0f} cp)
+            - T-4: {recent_prices.iloc[-4]:,.2f} VND (Khối lượng: {recent_volumes.iloc[-4]:,.0f} cp)
             
-            CHỈ SỐ KỸ THUẬT (cập nhật mới nhất):
+            CHỈ SỐ KỸ THUẬT:
             - SMA (20): {latest_indicators['SMA_20']:,.2f}
             - SMA (50): {latest_indicators['SMA_50']:,.2f}
             - SMA (200): {latest_indicators['SMA_200']:,.2f}
@@ -141,14 +154,21 @@ class TechDataTool(BaseTool):
             - Bollinger Upper: {latest_indicators['BB_Upper']:,.2f}
             - Bollinger Middle: {latest_indicators['BB_Middle']:,.2f}
             - Bollinger Lower: {latest_indicators['BB_Lower']:,.2f}
+
+            CHỈ SỐ KHỐI LƯỢNG:
+            - Khối lượng hiện tại: {current_volume:,.0f} cp
+            - Trung bình 10 phiên: {latest_indicators['Volume_SMA_10']:,.0f} cp
+            - Trung bình 20 phiên: {latest_indicators['Volume_SMA_20']:,.0f} cp
+            - Trung bình 50 phiên: {latest_indicators['Volume_SMA_50']:,.0f} cp
+            - Tỷ lệ Khối lượng / Trung bình 20: {latest_indicators['Volume_Ratio_20']:.2f}
+            - On-Balance Volume (OBV): {latest_indicators['OBV']:,.0f}
             
             VÙNG HỖ TRỢ VÀ KHÁNG CỰ:
             {support_resistance}
-            """
-            # Temporary comment out technical analysis
-            # NHẬN ĐỊNH KỸ THUẬT:
-            # {self._get_technical_analysis(latest_indicators, current_price, support_resistance)}
             
+            NHẬN ĐỊNH KỸ THUẬT:
+            {self._get_technical_analysis(latest_indicators, current_price, support_resistance)}
+            """
             return result
             
         except Exception as e:
@@ -188,17 +208,26 @@ class TechDataTool(BaseTool):
         std_dev = data['close'].rolling(window=20).std()
         data['BB_Upper'] = data['BB_Middle'] + (std_dev * 2)
         data['BB_Lower'] = data['BB_Middle'] - (std_dev * 2)
+
+        # Calculate volume moving averages
+        data['Volume_SMA_10'] = data['volume'].rolling(window=10).mean()
+        data['Volume_SMA_20'] = data['volume'].rolling(window=20).mean()
+        data['Volume_SMA_50'] = data['volume'].rolling(window=50).mean()
         
-        # Calculate ADX (Average Directional Index)
-        high_diff = data['high'].diff()
-        low_diff = data['low'].diff().multiply(-1)
+        # Calculate volume ratio compared to average
+        data['Volume_Ratio_10'] = data['volume'] / data['Volume_SMA_10']
+        data['Volume_Ratio_20'] = data['volume'] / data['Volume_SMA_20']
         
-        # True Range
-        tr1 = data['high'] - data['low']
-        tr2 = abs(data['high'] - data['close'].shift())
-        tr3 = abs(data['low'] - data['close'].shift())
-        data['TR'] = pd.DataFrame({'tr1': tr1, 'tr2': tr2, 'tr3': tr3}).max(axis=1)
-        data['ATR_14'] = data['TR'].rolling(window=14).mean()
+        # On-Balance Volume (OBV)
+        data['OBV'] = 0
+        data.loc[0, 'OBV'] = data.loc[0, 'volume']
+        for i in range(1, len(data)):
+            if data.loc[i, 'close'] > data.loc[i-1, 'close']:
+                data.loc[i, 'OBV'] = data.loc[i-1, 'OBV'] + data.loc[i, 'volume']
+            elif data.loc[i, 'close'] < data.loc[i-1, 'close']:
+                data.loc[i, 'OBV'] = data.loc[i-1, 'OBV'] - data.loc[i, 'volume']
+            else:
+                data.loc[i, 'OBV'] = data.loc[i-1, 'OBV']
         
         return data
     
@@ -311,6 +340,35 @@ class TechDataTool(BaseTool):
             else:
                 analysis.append("- Bollinger Bands: TRUNG TÍNH (Giá trong khoảng giữa dải BB)")
         
+        # Volume ratio analysis
+        volume_ratio_20 = indicators['Volume_Ratio_20']
+        if volume_ratio_20 > 2.0:
+            analysis.append("- Khối lượng: RẤT CAO (>200% trung bình 20 phiên)")
+        elif volume_ratio_20 > 1.5:
+            analysis.append("- Khối lượng: CAO (150-200% trung bình 20 phiên)")
+        elif volume_ratio_20 < 0.5:
+            analysis.append("- Khối lượng: THẤP (<50% trung bình 20 phiên)")
+        else:
+            analysis.append("- Khối lượng: BÌNH THƯỜNG (50-150% trung bình 20 phiên)")
+
+        # Volume trend analysis
+        if (indicators['Volume_SMA_10'] > indicators['Volume_SMA_20'] and 
+            indicators['Volume_SMA_20'] > indicators['Volume_SMA_50']):
+            analysis.append("- Xu hướng khối lượng: TĂNG (SMA 10 > SMA 20 > SMA 50)")
+        elif (indicators['Volume_SMA_10'] < indicators['Volume_SMA_20'] and 
+            indicators['Volume_SMA_20'] < indicators['Volume_SMA_50']):
+            analysis.append("- Xu hướng khối lượng: GIẢM (SMA 10 < SMA 20 < SMA 50)")
+        else:
+            analysis.append("- Xu hướng khối lượng: TRUNG LẬP")
+
+        # OBV trend analysis
+        current_volume = indicators['volume']
+        if current_volume > indicators['Volume_SMA_20'] * 1.5:
+            if current_price > indicators['SMA_20']:
+                analysis.append("- Tín hiệu khối lượng: TÍCH CỰC (Khối lượng cao kèm giá tăng)")
+            else:
+                analysis.append("- Tín hiệu khối lượng: TIÊU CỰC (Khối lượng cao kèm giá giảm)")
+
         return "\n".join(analysis)
     
 # Re-write basic FileReadTool but with utf-8 encoding

@@ -30,21 +30,24 @@ def tech_data_tool(symbol: str) -> str:
         # Identify support and resistance levels
         support_resistance = find_support_resistance(price_data)
         
-        # Get current price and 4 recent prices
+        # Get recent price and volume data
         current_price = price_data['close'].iloc[-1]
         recent_prices = price_data['close'].iloc[-5:-1]
+        current_volume = price_data['volume'].iloc[-1]
+        recent_volumes = price_data['volume'].iloc[-5:-1]
         
         # Format result
         latest_indicators = tech_data.iloc[-1]
         
         result = f"""Mã cổ phiếu: {symbol}
         Giá hiện tại: {current_price:,.2f} VND
+        Khối lượng giao dịch: {current_volume:,.0f} cp
 
         GIÁ ĐÓNG CỬA GẦN NHẤT:
-        - T-1: {recent_prices.iloc[-1]:,.2f} VND
-        - T-2: {recent_prices.iloc[-2]:,.2f} VND
-        - T-3: {recent_prices.iloc[-3]:,.2f} VND
-        - T-4: {recent_prices.iloc[-4]:,.2f} VND
+        - T-1: {recent_prices.iloc[-1]:,.2f} VND (KL: {recent_volumes.iloc[-1]:,.0f} cp)
+        - T-2: {recent_prices.iloc[-2]:,.2f} VND (KL: {recent_volumes.iloc[-2]:,.0f} cp)
+        - T-3: {recent_prices.iloc[-3]:,.2f} VND (KL: {recent_volumes.iloc[-3]:,.0f} cp)
+        - T-4: {recent_prices.iloc[-4]:,.2f} VND (KL: {recent_volumes.iloc[-4]:,.0f} cp)
         
         CHỈ SỐ KỸ THUẬT (cập nhật mới nhất):
         - SMA (20): {latest_indicators['SMA_20']:,.2f}
@@ -61,6 +64,16 @@ def tech_data_tool(symbol: str) -> str:
         - Bollinger Upper: {latest_indicators['BB_Upper']:,.2f}
         - Bollinger Middle: {latest_indicators['BB_Middle']:,.2f}
         - Bollinger Lower: {latest_indicators['BB_Lower']:,.2f}
+
+        CHỈ SỐ KHỐI LƯỢNG:
+        - Khối lượng hiện tại: {current_volume:,.0f} cp
+        - Trung bình 10 phiên: {latest_indicators['Volume_SMA_10']:,.0f} cp
+        - Trung bình 20 phiên: {latest_indicators['Volume_SMA_20']:,.0f} cp
+        - Trung bình 50 phiên: {latest_indicators['Volume_SMA_50']:,.0f} cp
+        - Tỷ lệ KL/TB20: {latest_indicators['Volume_Ratio_20']:.2f}
+        - On-Balance Volume (OBV): {latest_indicators['OBV']:,.0f}
+        - Money Flow Index (MFI): {latest_indicators['MFI']:.2f}
+        - Chaikin Money Flow (CMF): {latest_indicators['CMF']:.2f}
         
         VÙNG HỖ TRỢ VÀ KHÁNG CỰ:
         {support_resistance}
@@ -120,6 +133,69 @@ def calculate_indicators(df):
     data['TR'] = pd.DataFrame({'tr1': tr1, 'tr2': tr2, 'tr3': tr3}).max(axis=1)
     data['ATR_14'] = data['TR'].rolling(window=14).mean()
     
+    # Calculate volume moving averages
+    data['Volume_SMA_10'] = data['volume'].rolling(window=10).mean()
+    data['Volume_SMA_20'] = data['volume'].rolling(window=20).mean()
+    data['Volume_SMA_50'] = data['volume'].rolling(window=50).mean()
+    
+    # Calculate volume ratio compared to average
+    data['Volume_Ratio_10'] = data['volume'] / data['Volume_SMA_10']
+    data['Volume_Ratio_20'] = data['volume'] / data['Volume_SMA_20']
+    
+    # On-Balance Volume (OBV)
+    data['OBV'] = 0
+    data.loc[0, 'OBV'] = data.loc[0, 'volume']
+    for i in range(1, len(data)):
+        if data.loc[i, 'close'] > data.loc[i-1, 'close']:
+            data.loc[i, 'OBV'] = data.loc[i-1, 'OBV'] + data.loc[i, 'volume']
+        elif data.loc[i, 'close'] < data.loc[i-1, 'close']:
+            data.loc[i, 'OBV'] = data.loc[i-1, 'OBV'] - data.loc[i, 'volume']
+        else:
+            data.loc[i, 'OBV'] = data.loc[i-1, 'OBV']
+
+    # Money Flow Index (MFI)
+    # Calculate typical price
+    data['TypicalPrice'] = (data['high'] + data['low'] + data['close']) / 3
+    
+    # Calculate Raw Money Flow
+    data['RawMoneyFlow'] = data['TypicalPrice'] * data['volume']
+    
+    # Calculate Positive and Negative Money Flow
+    data['PositiveFlow'] = 0
+    data['NegativeFlow'] = 0
+    
+    for i in range(1, len(data)):
+        if data.loc[i, 'TypicalPrice'] > data.loc[i-1, 'TypicalPrice']:
+            data.loc[i, 'PositiveFlow'] = data.loc[i, 'RawMoneyFlow']
+        else:
+            data.loc[i, 'NegativeFlow'] = data.loc[i, 'RawMoneyFlow']
+    
+    # Calculate 14-period Money Flow Ratio and MFI
+    period = 14
+    data['PositiveFlow14'] = data['PositiveFlow'].rolling(window=period).sum()
+    data['NegativeFlow14'] = data['NegativeFlow'].rolling(window=period).sum()
+    
+    # Avoid division by zero
+    data['MoneyFlowRatio'] = data['PositiveFlow14'] / data['NegativeFlow14'].replace(0, np.nan)
+    data['MFI'] = 100 - (100 / (1 + data['MoneyFlowRatio']))
+    data['MFI'] = data['MFI'].fillna(50)  # Fill NaN values with neutral MFI
+    
+    # Chaikin Money Flow (CMF)
+    period = 20
+    data['MoneyFlowMultiplier'] = ((data['close'] - data['low']) - (data['high'] - data['close'])) / (data['high'] - data['low'])
+    data['MoneyFlowVolume'] = data['MoneyFlowMultiplier'] * data['volume']
+    data['CMF'] = data['MoneyFlowVolume'].rolling(window=period).sum() / data['volume'].rolling(window=period).sum()
+    
+    # Find recent price-volume divergences
+    data['Price_Up'] = data['close'] > data['close'].shift(1)
+    data['Volume_Up'] = data['volume'] > data['volume'].shift(1)
+    
+    # Positive divergence: Price down but volume up (potential reversal)
+    data['Positive_Divergence'] = (~data['Price_Up']) & data['Volume_Up']
+    
+    # Negative divergence: Price up but volume down (potential weakness)
+    data['Negative_Divergence'] = data['Price_Up'] & (~data['Volume_Up'])
+
     return data
 
 def find_support_resistance(df, window=10, threshold=0.03):
@@ -230,6 +306,47 @@ def get_technical_analysis(indicators, current_price, support_resistance):
             analysis.append("- Bollinger Bands: GẦN VÙNG QUÁ BÁN (Giá gần dải dưới BB)")
         else:
             analysis.append("- Bollinger Bands: TRUNG TÍNH (Giá trong khoảng giữa dải BB)")
+
+    # Volume ratio analysis
+        volume_ratio_20 = indicators['Volume_Ratio_20']
+        if volume_ratio_20 > 2.0:
+            analysis.append("- Khối lượng: RẤT CAO (>200% trung bình 20 phiên)")
+        elif volume_ratio_20 > 1.5:
+            analysis.append("- Khối lượng: CAO (150-200% trung bình 20 phiên)")
+        elif volume_ratio_20 < 0.5:
+            analysis.append("- Khối lượng: THẤP (<50% trung bình 20 phiên)")
+        else:
+            analysis.append("- Khối lượng: BÌNH THƯỜNG (50-150% trung bình 20 phiên)")
+
+        # Volume trend analysis
+        if (indicators['Volume_SMA_10'] > indicators['Volume_SMA_20'] and 
+            indicators['Volume_SMA_20'] > indicators['Volume_SMA_50']):
+            analysis.append("- Xu hướng khối lượng: TĂNG (SMA 10 > SMA 20 > SMA 50)")
+        elif (indicators['Volume_SMA_10'] < indicators['Volume_SMA_20'] and 
+            indicators['Volume_SMA_20'] < indicators['Volume_SMA_50']):
+            analysis.append("- Xu hướng khối lượng: GIẢM (SMA 10 < SMA 20 < SMA 50)")
+        else:
+            analysis.append("- Xu hướng khối lượng: TRUNG LẬP")
+
+        # OBV trend analysis
+        current_volume = indicators['volume']
+        if current_volume > indicators['Volume_SMA_20'] * 1.5:
+            if current_price > indicators['SMA_20']:
+                analysis.append("- Tín hiệu khối lượng: TÍCH CỰC (Khối lượng cao kèm giá tăng)")
+            else:
+                analysis.append("- Tín hiệu khối lượng: TIÊU CỰC (Khối lượng cao kèm giá giảm)")
+    
+    # MFI confirmation
+    if indicators['MFI'] > 80:
+        analysis.append("- Dòng tiền: QUÁ MUA (MFI > 80)")
+    elif indicators['MFI'] < 20:
+        analysis.append("- Dòng tiền: QUÁ BÁN (MFI < 20)")
+    
+    # Combine volume and price signals
+    if indicators['CMF'] > 0 and indicators['OBV'] > indicators.get('OBV_prev', 0) and current_price > indicators['SMA_20']:
+        analysis.append("- Kết hợp giá-khối lượng: RẤT TÍCH CỰC (CMF+, OBV tăng, giá trên SMA20)")
+    elif indicators['CMF'] < 0 and indicators['OBV'] < indicators.get('OBV_prev', 0) and current_price < indicators['SMA_20']:
+        analysis.append("- Kết hợp giá-khối lượng: RẤT TIÊU CỰC (CMF-, OBV giảm, giá dưới SMA20)")
     
     return "\n".join(analysis)
     
