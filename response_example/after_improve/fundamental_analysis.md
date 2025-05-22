@@ -1,0 +1,5 @@
+Dựa trên các chỉ số tài chính hiện tại, cổ phiếu FPT có vẻ được định giá hợp lý, với một chút प्रीमियम so với các công ty cùng ngành. Tỷ lệ P/E (21.3) và P/B (5.5) của FPT đều cao hơn một chút so với mức trung bình ngành "Phần mềm và dịch vụ công nghệ thông tin" (P/E là 20.60 và P/B là 5.16). Tuy nhiên, ROE cao (28%) cho thấy công ty đang sử dụng vốn chủ sở hữu hiệu quả, và tỷ lệ nợ trên vốn chủ sở hữu (D/E) ở mức 0.5 cho thấy rủi ro tài chính được kiểm soát tốt. EPS đạt 5557 VND phản ánh khả năng sinh lời trên mỗi cổ phiếu.
+
+Mặc dù biên lợi nhuận gộp ấn tượng (39.2%) cho thấy khả năng kiểm soát chi phí và định giá tốt, xu hướng giảm doanh thu và lợi nhuận trong bốn quý gần đây là một điểm đáng lưu ý. Tỷ lệ EV/EBITDA là 14.6, hơi cao, có thể cho thấy cổ phiếu đang được định giá cao so với thu nhập trước lãi vay, thuế, khấu hao.
+
+Nhìn chung, FPT là một công ty công nghệ vững mạnh với các chỉ số tài chính tốt. Tuy nhiên, nhà đầu tư nên theo dõi sát sao xu hướng tăng trưởng doanh thu và lợi nhuận để đánh giá triển vọng kinh doanh trong tương lai. Nếu xu hướng giảm tiếp tục, việc định giá có thể cần được điều chỉnh.

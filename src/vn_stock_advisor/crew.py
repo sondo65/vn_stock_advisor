@@ -27,7 +27,7 @@ gemini_llm = LLM(
     max_tokens=4096
 )
 
-# Create another LLM with a temperature of 0 to ensure deterministic outputs
+# Create another LLM for reasoning tasks
 gemini_reasoning_llm = LLM(
     model=GEMINI_REASONING_MODEL,
     api_key=GEMINI_API_KEY,
@@ -39,11 +39,14 @@ gemini_reasoning_llm = LLM(
 file_read_tool = FileReadTool(file_path="knowledge/PE_PB_industry_average.json")
 fund_tool=FundDataTool()
 tech_tool=TechDataTool(result_as_answer=True)
-scrape_tool = FirecrawlScrapeWebsiteTool()
+scrape_tool = FirecrawlScrapeWebsiteTool(
+    onlyMainContent=True
+)
 search_tool = SerperDevTool(
     country="vn",
     locale="vn",
-    location="Hanoi, Hanoi, Vietnam"
+    location="Hanoi, Hanoi, Vietnam",
+    n_results=20
 )
 web_search_tool = WebsiteSearchTool(
     config=dict(
@@ -76,7 +79,7 @@ class InvestmentDecision(BaseModel):
     industry: str =Field(..., description="Lĩnh vực kinh doanh")
     today_date: str = Field(..., description="Ngày phân tích")
     decision: str = Field(..., description="Quyết định mua, giữ hay bán cổ phiếu")
-    macro_reasoning: str = Field(..., description="Giải thích quyết định từ góc nhìn kinh tế vĩ mô và các tin tức liên quan gần đây về cổ phiếu")
+    macro_reasoning: str = Field(..., description="Giải thích quyết định từ góc nhìn kinh tế vĩ mô và các chính sách quan trọng")
     fund_reasoning: str = Field(..., description="Giải thích quyết định từ góc độ phân tích cơ bản")
     tech_reasoning: str = Field(..., description="Giải thích quyết định từ góc độ phân tích kỹ thuật")
 
@@ -176,5 +179,5 @@ class VnStockAdvisor():
             agents=self.agents, # Automatically created by the @agent decorator
             tasks=self.tasks, # Automatically created by the @task decorator
             process=Process.sequential,
-            verbose=True,
+            verbose=True
         )
