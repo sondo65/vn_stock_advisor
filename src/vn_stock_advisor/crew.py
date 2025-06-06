@@ -39,9 +39,7 @@ gemini_reasoning_llm = LLM(
 file_read_tool = FileReadTool(file_path="knowledge/PE_PB_industry_average.json")
 fund_tool=FundDataTool()
 tech_tool=TechDataTool(result_as_answer=True)
-scrape_tool = FirecrawlScrapeWebsiteTool(
-    onlyMainContent=True
-)
+scrape_tool = ScrapeWebsiteTool()
 search_tool = SerperDevTool(
     country="vn",
     locale="vn",
@@ -174,7 +172,6 @@ class VnStockAdvisor():
     @crew
     def crew(self) -> Crew:
         """Creates the VnStockAdvisor crew"""
-
         return Crew(
             agents=self.agents, # Automatically created by the @agent decorator
             tasks=self.tasks, # Automatically created by the @task decorator

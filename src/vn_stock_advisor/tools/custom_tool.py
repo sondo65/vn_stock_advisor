@@ -12,7 +12,7 @@ class MyToolInput(BaseModel):
 
 class FundDataTool(BaseTool):
     name: str = "Công cụ tra cứu dữ liệu cổ phiếu phục vụ phân tích cơ bản."
-    description: str = "Công cụ tra cứu dữ liệu cổ phiếu phục vụ phân tích cơ bản."
+    description: str = "Công cụ tra cứu dữ liệu cổ phiếu phục vụ phân tích cơ bản, cung cấp các chỉ số tài chính như P/E, P/B, ROE, ROA, EPS, D/E, biên lợi nhuận và EV/EBITDA."
     args_schema: Type[BaseModel] = MyToolInput
 
     def _run(self, argument: str) -> str:

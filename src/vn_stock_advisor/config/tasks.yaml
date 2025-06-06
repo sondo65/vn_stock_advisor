@@ -1,12 +1,12 @@
 news_collecting:
   description: >
-    Thu thập và tóm tắt 5 bài báo có ảnh hưởng lớn nhất đến thị trường chứng khoán Việt Nam
+    Thu thập và tóm tắt 3 bài báo có ảnh hưởng lớn nhất đến thị trường chứng khoán Việt Nam
     trong vòng 3 tháng tính đến ngày hiện tại ({current_date}).
 
     Quy trình thực hiện:
     1. Sử dụng công cụ `search_tool` để tìm các bài báo liên quan đến tin tức vĩ mô và chính sách kinh tế.
        Ưu tiên kết quả từ các nguồn tài chính uy tín (ví dụ: Cafef, VnEconomy, Bloomberg, VnExpress Kinh Doanh...).
-    2. Chọn 5 bài báo tiêu biểu nhất dựa trên mức độ ảnh hưởng, độ tin cậy và mức độ liên quan đến thị trường Việt Nam.
+    2. Chọn 3 bài báo tiêu biểu nhất dựa trên mức độ ảnh hưởng, độ tin cậy và mức độ liên quan đến thị trường Việt Nam.
     3. Dùng `scrape_tool` để thu thập nội dung chi tiết của từng bài báo đã chọn.
     4. Tóm tắt nội dung chính của từng bài trong 3–5 câu, tập trung vào tác động đến thị trường chứng khoán.
 
@@ -14,7 +14,7 @@ news_collecting:
     - Chỉ chọn bài viết có ngày đăng trong vòng 3 tháng trở lại.
     - Chỉ lấy bài có tiêu đề và nội dung thể hiện rõ ảnh hưởng đến thị trường tài chính/chứng khoán Việt Nam.
   expected_output: >
-    Một danh sách dạng markdown gồm 5 mục, mỗi mục bao gồm:
+    Một danh sách dạng markdown gồm 3 mục, mỗi mục bao gồm:
     - Tiêu đề bài báo (in đậm)
     - Ngày đăng
     - Nguồn (kèm liên kết URL)
