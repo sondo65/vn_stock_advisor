@@ -4,7 +4,7 @@ news_collecting:
     trong vòng 3 tháng tính đến ngày hiện tại ({current_date}).
 
     Quy trình thực hiện:
-    1. Sử dụng công cụ `search_tool` để tìm các bài báo liên quan đến tin tức vĩ mô và chính sách kinh tế (ví dụ: dự báo tăng trưởng, lãi suất, thuế, tỉ giá hối đoái...).
+    1. Sử dụng công cụ `search_tool` để tìm các bài báo liên quan đến tin tức vĩ mô và chính sách kinh tế (ví dụ: dự báo tăng trưởng, lãi suất, thuế, đầu tư công, tỉ giá hối đoái...).
        Ưu tiên kết quả từ các nguồn tài chính uy tín (ví dụ: Cafef, VnEconomy, VnExpress...).
     2. Chọn 3 bài báo tiêu biểu nhất dựa trên mức độ ảnh hưởng, độ tin cậy và mức độ liên quan đến thị trường Việt Nam.
     3. Dùng `scrape_tool` để thu thập nội dung chi tiết của từng bài báo đã chọn.

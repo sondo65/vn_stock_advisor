@@ -48,19 +48,19 @@ class FundDataTool(BaseTool):
             for i, (_, quarter) in enumerate(last_4_quarters.iterrows()):          
                 # Handle formatting of values properly
                 revenue = quarter.get("revenue", "N/A")
-                revenue_formatted = f"{revenue:,.0f} VND" if isinstance(revenue, (int, float)) else revenue
+                revenue_formatted = f"{revenue:,.0f}" if isinstance(revenue, (int, float)) else revenue
                 
                 gross_profit = quarter.get("gross_profit", "N/A")
-                gross_profit_formatted = f"{gross_profit:,.0f} VND" if isinstance(gross_profit, (int, float)) else gross_profit
+                gross_profit_formatted = f"{gross_profit:,.0f}" if isinstance(gross_profit, (int, float)) else gross_profit
                 
                 post_tax_profit = quarter.get("post_tax_profit", "N/A")
-                post_tax_profit_formatted = f"{post_tax_profit:,.0f} VND" if isinstance(post_tax_profit, (int, float)) else post_tax_profit
+                post_tax_profit_formatted = f"{post_tax_profit:,.0f}" if isinstance(post_tax_profit, (int, float)) else post_tax_profit
                 
                 quarter_info = f"""
                 Quý T - {i + 1}:
-                - Doanh thu thuần: {revenue_formatted}
-                - Lợi nhuận gộp: {gross_profit_formatted}
-                - Lợi nhuận sau thuế: {post_tax_profit_formatted}
+                - Doanh thu thuần: {revenue_formatted} tỉ đồng
+                - Lợi nhuận gộp: {gross_profit_formatted} tỉ đồng
+                - Lợi nhuận sau thuế: {post_tax_profit_formatted} tỉ đồng
                 """
                 quarterly_trends.append(quarter_info)
             
