@@ -1,10 +1,12 @@
 {
   "stock_ticker": "FPT",
-  "full_name": "Công ty Cổ phần FPT",
-  "industry": "Phần mềm và dịch vụ công nghệ thông tin",
-  "today_date": "2024-05-20",
+  "full_name": "FPT Corporation",
+  "industry": "Technology",
+  "today_date": "2025-06-06",
   "decision": "GIỮ",
-  "macro_reasoning": "Bối cảnh vĩ mô hiện tại cho thấy sự thận trọng gia tăng do tác động tiềm tàng của thuế quan đối ứng và diễn biến tiêu cực từ thị trường chứng khoán Mỹ. Mặc dù triển vọng GDP 2025 tích cực, các yếu tố bên ngoài tạo ra rủi ro và tâm lý chờ đợi kết quả đàm phán thương mại. Điều này khuyến nghị duy trì tỷ trọng hợp lý và tránh lướt sóng ngắn hạn.",
-  "fund_reasoning": "FPT là doanh nghiệp có nền tảng cơ bản vững chắc với ROE cao và cấu trúc tài chính lành mạnh. Tuy nhiên, định giá hiện tại có phần premium so với ngành và xu hướng giảm nhẹ về doanh thu, lợi nhuận trong các quý gần đây là điểm cần theo dõi để đánh giá triển vọng tăng trưởng dài hạn.",
-  "tech_reasoning": "Phân tích kỹ thuật cho thấy xu hướng dài hạn vẫn là giảm (dưới SMA 200), trong khi ngắn hạn là trung lập với tín hiệu MACD tích cực nhưng khối lượng giao dịch dưới mức trung bình. Giá đang dao động trong vùng hẹp giữa hỗ trợ S1 (116.59) và kháng cự R1 (120.00), chưa có tín hiệu bứt phá rõ ràng xác nhận xu hướng tăng mạnh. Cần theo dõi thêm tín hiệu kỹ thuật và khối lượng giao dịch."
+  "macro_reasoning": "Môi trường vĩ mô Việt Nam năm 2025 cho thấy nhiều yếu tố hỗ trợ tăng trưởng nhưng cũng tiềm ẩn rủi ro lạm phát và căng thẳng thương mại. Các dự báo GDP từ ADB cho thấy mức tăng trưởng khả quan, tuy nhiên cần thận trọng với các yếu tố bên ngoài. Điểm: 6/10. Lý do: Triển vọng tăng trưởng kinh tế hỗ trợ, nhưng rủi ro lạm phát và căng thẳng thương mại cần được theo dõi.",
+  "fund_reasoning": "FPT có các chỉ số tài chính ở mức khá. P/E tương đương trung bình ngành, ROE và ROA tốt, cho thấy hiệu quả hoạt động ổn định. Tuy nhiên, cần theo dõi sát sao sự sụt giảm nhẹ về doanh thu và lợi nhuận trong quý gần nhất. Điểm: 7/10. Lý do: Hiệu quả hoạt động tốt, nhưng cần theo dõi sự ổn định của doanh thu và lợi nhuận.",
+  "tech_reasoning": "Phân tích kỹ thuật cho thấy xu hướng dài hạn là giảm, nhưng xu hướng ngắn hạn trung lập. RSI ở mức trung tính, MACD tiêu cực. Giá đang gần vùng quá bán theo Bollinger Bands. Khối lượng giao dịch ở mức bình thường nhưng xu hướng giảm. Điểm: 5/10. Lý do: Tín hiệu kỹ thuật trái chiều, cần thêm xác nhận để xác định xu hướng rõ ràng.",
+  "buy_price": "110.00",
+  "sell_price": "120.00"
 }

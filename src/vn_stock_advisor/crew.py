@@ -80,6 +80,8 @@ class InvestmentDecision(BaseModel):
     macro_reasoning: str = Field(..., description="Giải thích quyết định từ góc nhìn kinh tế vĩ mô và các chính sách quan trọng")
     fund_reasoning: str = Field(..., description="Giải thích quyết định từ góc độ phân tích cơ bản")
     tech_reasoning: str = Field(..., description="Giải thích quyết định từ góc độ phân tích kỹ thuật")
+    buy_price: str = Field(..., description="Giá mua cổ phiếu khuyến nghị dựa trên phân tích kỹ thuật")
+    sell_price: str = Field(..., description="Giá bán cổ phiếu khuyến nghị dựa trên phân tích kỹ thuật")
 
 @CrewBase
 class VnStockAdvisor():
