@@ -67,11 +67,11 @@ crewai run
 - python-dotenv >= 1.1.0
 - Google Gemini API key (đăng kí free từ [Google AI Studio](https://aistudio.google.com/apikey))
 - Serper.dev API key (đăng kí free từ [serper.dev](https://serper.dev/api-key))
-- Firecrawl.dev API key (đăng kí free từ [firecrawl.dev](https://www.firecrawl.dev/app/api-keys))
 
 ### Một số lỗi có thể gặp
-- Đôi khi agent sẽ chạy lâu hơn bình thường do giới hạn về API call mỗi phút (hiện tại là rpm đang set là 10)
+- Đôi khi agent sẽ chạy lâu hơn bình thường do giới hạn về API call mỗi phút (hiện tại là rpm đang set là 7)
 - Đôi khi server Gemini quá tải dẫn đến agent bị lỗi, có thể thử lại vào 1 thời điểm khác
+- Cũng do giới hạn của API free nên chỉ search và scrape tối đa 3 nguồn tin
 
 ### Bản quyền
 MIT License
@@ -145,11 +145,11 @@ crewai run
 - python-dotenv >= 1.1.0
 - Google Gemini API key (register free from [Google AI Studio](https://aistudio.google.com/apikey))
 - Serper.dev API key (register free from [serper.dev](https://serper.dev/api-key))
-- Firecrawl.dev API key (register free từ [firecrawl.dev](https://www.firecrawl.dev/app/api-keys))
 
 ### Known Issues
-- Occasionally, the agent system may run longer than usual due to the API call limit per minute (currently set to 10 rpm). 
+- Occasionally, the agent system may run longer than usual due to the API call limit per minute (currently set to 7 rpm). 
 - Sometimes, the Gemini server may be overloaded, resulting in agent errors; it may be advisable to try again at a later time.
+- Also, due to the limit of free API, only search and scrape maximum of 3 news sources.
 
 ### License
 MIT License

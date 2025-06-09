@@ -1,12 +1,12 @@
 {
-  "stock_ticker": "FPT",
-  "full_name": "FPT Corporation",
-  "industry": "Technology",
-  "today_date": "2025-06-06",
+  "stock_ticker": "VNM",
+  "full_name": "Vietnam Dairy Products Joint Stock Company",
+  "industry": "Food & Beverage",
+  "today_date": "2025-06-09",
   "decision": "GIỮ",
-  "macro_reasoning": "Môi trường vĩ mô Việt Nam năm 2025 cho thấy nhiều yếu tố hỗ trợ tăng trưởng nhưng cũng tiềm ẩn rủi ro lạm phát và căng thẳng thương mại. Các dự báo GDP từ ADB cho thấy mức tăng trưởng khả quan, tuy nhiên cần thận trọng với các yếu tố bên ngoài. Điểm: 6/10. Lý do: Triển vọng tăng trưởng kinh tế hỗ trợ, nhưng rủi ro lạm phát và căng thẳng thương mại cần được theo dõi.",
-  "fund_reasoning": "FPT có các chỉ số tài chính ở mức khá. P/E tương đương trung bình ngành, ROE và ROA tốt, cho thấy hiệu quả hoạt động ổn định. Tuy nhiên, cần theo dõi sát sao sự sụt giảm nhẹ về doanh thu và lợi nhuận trong quý gần nhất. Điểm: 7/10. Lý do: Hiệu quả hoạt động tốt, nhưng cần theo dõi sự ổn định của doanh thu và lợi nhuận.",
-  "tech_reasoning": "Phân tích kỹ thuật cho thấy xu hướng dài hạn là giảm, nhưng xu hướng ngắn hạn trung lập. RSI ở mức trung tính, MACD tiêu cực. Giá đang gần vùng quá bán theo Bollinger Bands. Khối lượng giao dịch ở mức bình thường nhưng xu hướng giảm. Điểm: 5/10. Lý do: Tín hiệu kỹ thuật trái chiều, cần thêm xác nhận để xác định xu hướng rõ ràng.",
-  "buy_price": "110.00",
-  "sell_price": "120.00"
+  "macro_reasoning": "Môi trường vĩ mô hiện tại cho thị trường chứng khoán Việt Nam năm 2025 cho thấy nhiều tín hiệu trái chiều. Một mặt, các chính sách hỗ trợ từ trong nước như chính sách tiền tệ và tài khóa mở rộng, cùng với việc thúc đẩy đầu tư công, tạo nền tảng tích cực cho tăng trưởng, đặc biệt trong nửa cuối năm. Triển vọng nâng hạng thị trường lên trạng thái mới nổi bởi FTSE Russell cũng là một yếu tố lạc quan, hứa hẹn thu hút dòng vốn ngoại trở lại. Định giá thị trường được đánh giá là hấp dẫn. Tuy nhiên, thị trường vẫn đối mặt với áp lực từ việc nhà đầu tư nước ngoài liên tục bán ròng, biến động tỷ giá và lãi suất liên ngân hàng cao. Các yếu tố toàn cầu như quyết định thuế quan của Mỹ và tốc độ cắt giảm lãi suất của Cục Dự trữ Liên bang Mỹ cũng tạo ra sự không chắc chắn. Điều này đòi hỏi sự thận trọng và quản lý rủi ro, khiến bức tranh vĩ mô không hoàn toàn tích cực mà mang tính cân bằng giữa cơ hội và thách thức. (Điểm: 6.5/10)",
+  "fund_reasoning": "VNM thể hiện sức khỏe tài chính cơ bản vững chắc. Công ty duy trì tỷ suất lợi nhuận trên vốn chủ sở hữu (ROE) cao, tỷ lệ nợ thấp và biên lợi nhuận ấn tượng, cho thấy hiệu quả hoạt động vượt trội và rủi ro tài chính thấp. Vinamilk tiếp tục khẳng định vị thế dẫn đầu thị trường trong ngành thực phẩm và đồ uống, với xu hướng tăng trưởng doanh thu và lợi nhuận ổn định. Khả năng quản lý chi phí hiệu quả và tiềm năng mở rộng sang các thị trường mới nổi củng cố triển vọng kinh doanh tích cực của công ty. Mặc dù định giá hiện tại được nhận định là hợp lý đến hơi cao so với trung bình ngành, nhưng chất lượng kinh doanh cốt lõi và sự ổn định của VNM vẫn là điểm cộng lớn, làm cho cổ phiếu này trở nên hấp dẫn về mặt cơ bản. (Điểm: 8.0/10)",
+  "tech_reasoning": "Phân tích kỹ thuật cho thấy VNM đang trong xu hướng giảm dài hạn, với giá hiện tại nằm dưới đường trung bình động 200 ngày (SMA 200) và SMA 50 cũng nằm dưới SMA 200. Trong ngắn hạn, giá cổ phiếu đang giao dịch dưới các đường trung bình động ngắn hạn (SMA 20, SMA 50, EMA 12, EMA 26), cho thấy sự yếu kém. Chỉ số sức mạnh tương đối (RSI) ở mức trung tính (45.45), không cho thấy tín hiệu quá mua hay quá bán rõ ràng. Mặc dù chỉ báo MACD có tín hiệu cắt lên trên đường tín hiệu, nhưng giá trị của nó rất gần mức 0, cho thấy động lượng tăng yếu. Khối lượng giao dịch hiện tại thấp hơn mức trung bình, và chỉ báo On-Balance Volume (OBV) âm, phản ánh thiếu hụt lực cầu mạnh mẽ. Cổ phiếu đang dao động trong dải Bollinger Bands, nhưng các tín hiệu kỹ thuật tổng thể nghiêng về sự thận trọng, với các vùng kháng cự đáng kể phía trên. (Điểm: 4.0/10)",
+  "buy_price": 52060.0,
+  "sell_price": 61879.0
 }
