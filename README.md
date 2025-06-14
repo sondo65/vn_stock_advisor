@@ -1,4 +1,4 @@
-# VN Stock Advisor (v.0.3.0)
+# VN Stock Advisor (v.0.4.1)
 
 ## 🇻🇳 Tiếng Việt
 
@@ -49,7 +49,6 @@ GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini/gemini-2.0-flash-001
 GEMINI_REASONING_MODEL=gemini/gemini-2.5-flash-preview-04-17
 SERPER_API_KEY=your_serper_api_key
-FIRECRAWL_API_KEY=your_firecrawl_api_key
 ```
 
 ### Sử dụng
@@ -63,18 +62,18 @@ crewai run
 ### Yêu cầu
 - Python >= 3.10, < 3.13
 - crewai[tools] >= 0.117.0
-- firecrawl-py>=2.5.4
 - google-generativeai >= 0.8.4
 - vnstock >= 3.2.4
 - python-dotenv >= 1.1.0
 - Google Gemini API key (đăng kí free từ [Google AI Studio](https://aistudio.google.com/apikey))
 - Serper.dev API key (đăng kí free từ [serper.dev](https://serper.dev/api-key))
-- Firecrawl.dev API key (đăng kí free từ [firecrawl.dev](https://www.firecrawl.dev/app/api-keys))
 
 ### Một số lỗi có thể gặp
-- Đã thiết lập JSON knowledge source nhưng có vẻ Agent chưa tận dụng được -> chuyển sang dùng FileReadTool
-- Custom tool sử dụng @tool decorator không hoạt động. Phải chuyển sang dùng BaseTool class mới chạy.
-- FileReadTool mặc định ko dùng utf-8 encoding. Phải viết lại tool này.
+- Đôi khi agent sẽ chạy lâu hơn bình thường do giới hạn về API call mỗi phút (hiện tại là rpm đang set là 7)
+- Đôi khi server Gemini quá tải dẫn đến agent bị lỗi, có thể thử lại vào 1 thời điểm khác
+- Cũng do giới hạn của API free nên chỉ search và scrape tối đa 3 nguồn tin
+- Do thử nghiệm prompting bằng tiếng Việt nên có khả năng Gemini vẫn chưa hiểu và tuân thủ 100%
+- 1 số trang web sử dụng nhiều JavaScript hoặc chặn bot nên bị lỗi khi scrape dữ liệu (ví dụ như vietstock.vn)
 
 ### Bản quyền
 MIT License
@@ -143,18 +142,18 @@ crewai run
 ### Requirements
 - Python >= 3.10, < 3.13
 - crewai[tools] >= 0.117.0
-- firecrawl-py>=2.5.4
 - google-generativeai >= 0.8.4
 - vnstock >= 3.2.4
 - python-dotenv >= 1.1.0
 - Google Gemini API key (register free from [Google AI Studio](https://aistudio.google.com/apikey))
 - Serper.dev API key (register free from [serper.dev](https://serper.dev/api-key))
-- Firecrawl.dev API key (register free từ [firecrawl.dev](https://www.firecrawl.dev/app/api-keys))
 
 ### Known Issues
-- Already implemented JSON knowledge source but seems like Agent still not be able to take advantage of. Using FileReadTool instead.
-- Custom tool using @tool decorator not working. Using BaseTool class instead.
-- FileReadTool not using utf-8 encoding. Need to re-write this tool instead.
+- Occasionally, the agent system may run longer than usual due to the API call limit per minute (currently set to 7 rpm). 
+- Sometimes, the Gemini server may be overloaded, resulting in agent errors; it may be advisable to try again at a later time.
+- Also, due to the limit of free API, only search and scrape maximum of 3 news sources.
+- Due to Vietnamese prompting, Gemini model may not follow 100% as instructed
+- Due to heavy JavaScript or bot blocking, some website scraping may lead to error (notably vietstock.vn)
 
 ### License
 MIT License

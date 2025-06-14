@@ -70,8 +70,8 @@ def fund_data_tool(symbol: str) -> str:
 
 def test_fund_data_tool():
     # Test with a valid stock symbol (e.g., VNM for Vinamilk)
-    result = fund_data_tool("VCB")
-    print("Test result for VCB:")
+    result = fund_data_tool("FPT")
+    print("Test result for FPT:")
     print(result)
     
     # Test with an invalid symbol

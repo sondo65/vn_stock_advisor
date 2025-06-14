@@ -39,9 +39,7 @@ gemini_reasoning_llm = LLM(
 file_read_tool = FileReadTool(file_path="knowledge/PE_PB_industry_average.json")
 fund_tool=FundDataTool()
 tech_tool=TechDataTool(result_as_answer=True)
-scrape_tool = FirecrawlScrapeWebsiteTool(
-    onlyMainContent=True
-)
+scrape_tool = ScrapeWebsiteTool()
 search_tool = SerperDevTool(
     country="vn",
     locale="vn",
@@ -82,6 +80,8 @@ class InvestmentDecision(BaseModel):
     macro_reasoning: str = Field(..., description="Giải thích quyết định từ góc nhìn kinh tế vĩ mô và các chính sách quan trọng")
     fund_reasoning: str = Field(..., description="Giải thích quyết định từ góc độ phân tích cơ bản")
     tech_reasoning: str = Field(..., description="Giải thích quyết định từ góc độ phân tích kỹ thuật")
+    buy_price: float = Field(..., description="Giá mua cổ phiếu khuyến nghị dựa trên phân tích kỹ thuật")
+    sell_price: float = Field(..., description="Giá bán cổ phiếu khuyến nghị dựa trên phân tích kỹ thuật")
 
 @CrewBase
 class VnStockAdvisor():
@@ -98,7 +98,7 @@ class VnStockAdvisor():
             verbose=True,
             llm=gemini_llm,
             tools=[search_tool, scrape_tool],
-            max_rpm=10
+            max_rpm=5
         )
 
     @agent
@@ -109,7 +109,7 @@ class VnStockAdvisor():
             llm=gemini_llm,
             tools=[fund_tool, file_read_tool],
             knowledge_sources=[json_source],
-            max_rpm=10,
+            max_rpm=5,
             embedder={
                 "provider": "google",
                 "config": {
@@ -126,7 +126,7 @@ class VnStockAdvisor():
             verbose=True,
             llm=gemini_llm,
             tools=[tech_tool],
-            max_rpm=10
+            max_rpm=5
         )
     
     @agent
@@ -135,7 +135,7 @@ class VnStockAdvisor():
             config=self.agents_config["investment_strategist"],
             verbose=True,
             llm=gemini_reasoning_llm,
-            max_rpm=10
+            max_rpm=5
         )
 
     @task
@@ -174,7 +174,6 @@ class VnStockAdvisor():
     @crew
     def crew(self) -> Crew:
         """Creates the VnStockAdvisor crew"""
-
         return Crew(
             agents=self.agents, # Automatically created by the @agent decorator
             tasks=self.tasks, # Automatically created by the @task decorator

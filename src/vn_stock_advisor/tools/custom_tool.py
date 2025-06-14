@@ -12,7 +12,7 @@ class MyToolInput(BaseModel):
 
 class FundDataTool(BaseTool):
     name: str = "Công cụ tra cứu dữ liệu cổ phiếu phục vụ phân tích cơ bản."
-    description: str = "Công cụ tra cứu dữ liệu cổ phiếu phục vụ phân tích cơ bản."
+    description: str = "Công cụ tra cứu dữ liệu cổ phiếu phục vụ phân tích cơ bản, cung cấp các chỉ số tài chính như P/E, P/B, ROE, ROA, EPS, D/E, biên lợi nhuận và EV/EBITDA."
     args_schema: Type[BaseModel] = MyToolInput
 
     def _run(self, argument: str) -> str:
@@ -48,19 +48,19 @@ class FundDataTool(BaseTool):
             for i, (_, quarter) in enumerate(last_4_quarters.iterrows()):          
                 # Handle formatting of values properly
                 revenue = quarter.get("revenue", "N/A")
-                revenue_formatted = f"{revenue:,.0f} VND" if isinstance(revenue, (int, float)) else revenue
+                revenue_formatted = f"{revenue:,.0f}" if isinstance(revenue, (int, float)) else revenue
                 
                 gross_profit = quarter.get("gross_profit", "N/A")
-                gross_profit_formatted = f"{gross_profit:,.0f} VND" if isinstance(gross_profit, (int, float)) else gross_profit
+                gross_profit_formatted = f"{gross_profit:,.0f}" if isinstance(gross_profit, (int, float)) else gross_profit
                 
                 post_tax_profit = quarter.get("post_tax_profit", "N/A")
-                post_tax_profit_formatted = f"{post_tax_profit:,.0f} VND" if isinstance(post_tax_profit, (int, float)) else post_tax_profit
+                post_tax_profit_formatted = f"{post_tax_profit:,.0f}" if isinstance(post_tax_profit, (int, float)) else post_tax_profit
                 
                 quarter_info = f"""
                 Quý T - {i + 1}:
-                - Doanh thu thuần: {revenue_formatted}
-                - Lợi nhuận gộp: {gross_profit_formatted}
-                - Lợi nhuận sau thuế: {post_tax_profit_formatted}
+                - Doanh thu thuần: {revenue_formatted} tỉ đồng
+                - Lợi nhuận gộp: {gross_profit_formatted} tỉ đồng
+                - Lợi nhuận sau thuế: {post_tax_profit_formatted} tỉ đồng
                 """
                 quarterly_trends.append(quarter_info)
             
@@ -130,30 +130,30 @@ class TechDataTool(BaseTool):
             Tên công ty: {full_name}
             Ngành: {industry}
             Ngày phân tích: {datetime.now().strftime('%Y-%m-%d')}
-            Giá hiện tại: {current_price:,.2f} VND
+            Giá hiện tại: {(current_price*1000):,.0f} VND
             Khối lượng giao dịch: {current_volume:,.0f} cp
 
             GIÁ ĐÓNG CỬA GẦN NHẤT:
-            - T-1: {recent_prices.iloc[-1]:,.2f} VND (Khối lượng: {recent_volumes.iloc[-1]:,.0f} cp)
-            - T-2: {recent_prices.iloc[-2]:,.2f} VND (Khối lượng: {recent_volumes.iloc[-2]:,.0f} cp)
-            - T-3: {recent_prices.iloc[-3]:,.2f} VND (Khối lượng: {recent_volumes.iloc[-3]:,.0f} cp)
-            - T-4: {recent_prices.iloc[-4]:,.2f} VND (Khối lượng: {recent_volumes.iloc[-4]:,.0f} cp)
+            - T-1: {(recent_prices.iloc[-1]*1000):,.0f} VND (KL: {recent_volumes.iloc[-1]:,.0f} cp)
+            - T-2: {(recent_prices.iloc[-2]*1000):,.0f} VND (KL: {recent_volumes.iloc[-2]:,.0f} cp)
+            - T-3: {(recent_prices.iloc[-3]*1000):,.0f} VND (KL: {recent_volumes.iloc[-3]:,.0f} cp)
+            - T-4: {(recent_prices.iloc[-4]*1000):,.0f} VND (KL: {recent_volumes.iloc[-4]:,.0f} cp)
             
             CHỈ SỐ KỸ THUẬT:
-            - SMA (20): {latest_indicators['SMA_20']:,.2f}
-            - SMA (50): {latest_indicators['SMA_50']:,.2f}
-            - SMA (200): {latest_indicators['SMA_200']:,.2f}
-            - EMA (12): {latest_indicators['EMA_12']:,.2f}
-            - EMA (26): {latest_indicators['EMA_26']:,.2f}
+            - SMA (20): {(latest_indicators['SMA_20']*1000):,.0f}
+            - SMA (50): {(latest_indicators['SMA_50']*1000):,.0f}
+            - SMA (200): {(latest_indicators['SMA_200']*1000):,.0f}
+            - EMA (12): {(latest_indicators['EMA_12']*1000):,.0f}
+            - EMA (26): {(latest_indicators['EMA_26']*1000):,.0f}
             
             - RSI (14): {latest_indicators['RSI_14']:.2f}
             - MACD: {latest_indicators['MACD']:.2f}
             - MACD Signal: {latest_indicators['MACD_Signal']:.2f}
             - MACD Histogram: {latest_indicators['MACD_Hist']:.2f}
             
-            - Bollinger Upper: {latest_indicators['BB_Upper']:,.2f}
-            - Bollinger Middle: {latest_indicators['BB_Middle']:,.2f}
-            - Bollinger Lower: {latest_indicators['BB_Lower']:,.2f}
+            - Bollinger Upper: {(latest_indicators['BB_Upper']*1000):,.0f}
+            - Bollinger Middle: {(latest_indicators['BB_Middle']*1000):,.0f}
+            - Bollinger Lower: {(latest_indicators['BB_Lower']*1000):,.0f}
 
             CHỈ SỐ KHỐI LƯỢNG:
             - Khối lượng hiện tại: {current_volume:,.0f} cp
@@ -284,11 +284,11 @@ class TechDataTool(BaseTool):
         # Format result
         result = "Vùng kháng cự:\n"
         for i, level in enumerate(resistance_levels, 1):
-            result += f"- R{i}: {level:,.2f} VND\n"
+            result += f"- R{i}: {level*1000:,.0f} VND\n"
         
         result += "\nVùng hỗ trợ:\n"
         for i, level in enumerate(support_levels, 1):
-            result += f"- S{i}: {level:,.2f} VND\n"
+            result += f"- S{i}: {level*1000:,.0f} VND\n"
             
         return result
     
