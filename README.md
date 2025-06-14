@@ -69,10 +69,10 @@ crewai run
 - Serper.dev API key (đăng kí free từ [serper.dev](https://serper.dev/api-key))
 
 ### Một số lỗi có thể gặp
-- Đôi khi agent sẽ chạy lâu hơn bình thường do giới hạn về API call mỗi phút (hiện tại là rpm đang set là 7)
-- Đôi khi server Gemini quá tải dẫn đến agent bị lỗi, có thể thử lại vào 1 thời điểm khác
-- Cũng do giới hạn của API free nên chỉ search và scrape tối đa 3 nguồn tin
-- Do thử nghiệm prompting bằng tiếng Việt nên có khả năng Gemini vẫn chưa hiểu và tuân thủ 100%
+- Đôi khi agent sẽ chạy lâu hơn bình thường do giới hạn về API call mỗi phút (hiện tại là rpm đang set là 5)
+- Đôi khi server Gemini quá tải dẫn đến agent bị lỗi, thường là vào buổi tối. Có thể thử lại vào 1 thời điểm khác
+- Cũng do giới hạn của API free nên chỉ search và scrape tối đa 3 nguồn tin.
+- Do thử nghiệm prompting bằng tiếng Việt nên có khả năng Gemini vẫn chưa hiểu và tuân thủ 100% prompt
 - 1 số trang web sử dụng nhiều JavaScript hoặc chặn bot nên bị lỗi khi scrape dữ liệu (ví dụ như vietstock.vn)
 
 ### Bản quyền
@@ -149,7 +149,7 @@ crewai run
 - Serper.dev API key (register free from [serper.dev](https://serper.dev/api-key))
 
 ### Known Issues
-- Occasionally, the agent system may run longer than usual due to the API call limit per minute (currently set to 7 rpm). 
+- Occasionally, the agent system may run longer than usual due to the API call limit per minute (currently set to 5 rpm). 
 - Sometimes, the Gemini server may be overloaded, resulting in agent errors; it may be advisable to try again at a later time.
 - Also, due to the limit of free API, only search and scrape maximum of 3 news sources.
 - Due to Vietnamese prompting, Gemini model may not follow 100% as instructed
