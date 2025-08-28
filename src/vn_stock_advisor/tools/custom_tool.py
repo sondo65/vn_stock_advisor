@@ -32,6 +32,23 @@ except ImportError as e:
     VolumeAnalyzer = None
     DivergenceDetector = None
 
+# Import Phase 3 Data Integration modules
+try:
+    from ..data_integration import (
+        RealtimeDataCollector,
+        DataValidator,
+        CacheManager,
+        MultiSourceAggregator
+    )
+    DATA_INTEGRATION_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Could not import Data Integration modules: {e}")
+    RealtimeDataCollector = None
+    DataValidator = None
+    CacheManager = None
+    MultiSourceAggregator = None
+    DATA_INTEGRATION_AVAILABLE = False
+
 class MyToolInput(BaseModel):
     """Input schema for MyCustomTool."""
     argument: str = Field(..., description="Mã cổ phiếu.")
@@ -125,6 +142,11 @@ class TechDataTool(BaseTool):
             full_name = company.profile().get("company_name").iloc[0]
             industry = company.overview().get("industry").iloc[0]
             
+            # Phase 3: Initialize data validation if available
+            data_validator = None
+            if DATA_INTEGRATION_AVAILABLE and DataValidator:
+                data_validator = DataValidator()
+            
             # Get price data for the last 200 days
             end_date = datetime.now()
             start_date = end_date - timedelta(days=200)
@@ -200,6 +222,8 @@ class TechDataTool(BaseTool):
             
             PHÂN TÍCH KỸ THUẬT NÂNG CAO:
             {self._run_advanced_technical_analysis(tech_data)}
+            
+            {self._get_data_quality_assessment(data_validator, current_price, current_volume, latest_indicators)}
             """
             return result
             
@@ -495,6 +519,76 @@ class TechDataTool(BaseTool):
             
         except Exception as e:
             return f"Lỗi advanced technical analysis: {str(e)}"
+    
+    def _get_data_quality_assessment(self, data_validator, current_price, current_volume, latest_indicators):
+        """Get data quality assessment for Phase 3."""
+        try:
+            if not data_validator or not DATA_INTEGRATION_AVAILABLE:
+                return ""
+            
+            # Prepare data for validation
+            price_data = {
+                'price': current_price,
+                'volume': current_volume,
+                'change_percent': latest_indicators.get('Price_Change_Pct', 0),
+                'open': latest_indicators.get('Open', current_price),
+                'high': latest_indicators.get('High', current_price),
+                'low': latest_indicators.get('Low', current_price),
+                'close': current_price
+            }
+            
+            # Validate price data
+            validation_results = data_validator.validate_price_data(price_data)
+            
+            if not validation_results:
+                return """
+📊 ĐÁNH GIÁ CHẤT LƯỢNG DỮ LIỆU (PHASE 3):
+✅ Dữ liệu đã qua kiểm tra - Không phát hiện vấn đề
+• Độ tin cậy: CAO
+• Trạng thái: SẴN SÀNG SỬ DỤNG
+"""
+            
+            # Analyze validation results
+            errors = [r for r in validation_results if r.level.value == 'error']
+            warnings = [r for r in validation_results if r.level.value == 'warning']
+            critical = [r for r in validation_results if r.level.value == 'critical']
+            
+            quality_assessment = ["📊 ĐÁNH GIÁ CHẤT LƯỢNG DỮ LIỆU (PHASE 3):"]
+            
+            if critical:
+                quality_assessment.append("🚨 VẤN ĐỀ NGHIÊM TRỌNG:")
+                for issue in critical:
+                    quality_assessment.append(f"  • {issue.message}")
+                quality_assessment.append("• Trạng thái: CẦN KIỂM TRA NGAY")
+            
+            elif errors:
+                quality_assessment.append("⚠️ LỖI DỮ LIỆU:")
+                for error in errors:
+                    quality_assessment.append(f"  • {error.message}")
+                quality_assessment.append("• Trạng thái: CẦN THẬN TRỌNG")
+            
+            elif warnings:
+                quality_assessment.append("💡 CẢNH BÁO:")
+                for warning in warnings:
+                    quality_assessment.append(f"  • {warning.message}")
+                quality_assessment.append("• Trạng thái: CHẤP NHẬN ĐƯỢC")
+            
+            # Overall assessment
+            total_issues = len(critical) + len(errors) + len(warnings)
+            if total_issues == 0:
+                quality_assessment.append("• Độ tin cậy: CAO")
+            elif len(critical) > 0 or len(errors) > 2:
+                quality_assessment.append("• Độ tin cậy: THẤP")
+            else:
+                quality_assessment.append("• Độ tin cậy: TRUNG BÌNH")
+            
+            quality_assessment.append(f"• Tổng vấn đề phát hiện: {total_issues}")
+            quality_assessment.append("• Hệ thống: Enhanced Data Validation v0.6.0")
+            
+            return "\n".join(quality_assessment)
+            
+        except Exception as e:
+            return f"\n📊 ĐÁNH GIÁ CHẤT LƯỢNG DỮ LIỆU: Lỗi kiểm tra - {str(e)}"
 
 class SentimentAnalysisTool(BaseTool):
     name: str = "Công cụ phân tích sentiment từ tin tức và social media."

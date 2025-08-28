@@ -20,12 +20,16 @@ Sử dụng hệ thống 4 AI Agents để thực hiện những công việc sa
 - 📈 Tự động thu thập dữ liệu giá, khối lượng từ VCI hoặc TCBS, tính toán và phân tích kỹ thuật (SMA, EMA, RSI, MACD, OBV...)
 - 💡 Tổng hợp dữ liệu và đề xuất quyết định đầu tư (Mua/Bán/Giữ)
 
-### Tính năng nâng cao (v0.6.0)
+### Tính năng nâng cao (v0.7.0)
 - 🤖 **Machine Learning Analysis**: Pattern Recognition, Anomaly Detection
 - 📊 **Advanced Technical Analysis**: Fibonacci, Ichimoku Cloud, Volume Profile, Divergence Detection  
 - 💭 **Sentiment Analysis**: Phân tích tâm lý thị trường từ tin tức và social media
 - ⚖️ **Advanced Scoring System**: Hệ thống chấm điểm và tính toán confidence động
 - 🎯 **Risk Analysis**: Comprehensive risk assessment và stress testing
+- 🔗 **Multi-Source Data Integration**: Tích hợp dữ liệu từ nhiều nguồn với conflict resolution
+- 📡 **Real-time Data Collection**: Thu thập dữ liệu real-time với caching và validation
+- 📚 **Enhanced Knowledge Base**: Cơ sở dữ liệu ngành mở rộng với industry benchmarks
+- ✅ **Data Quality Assurance**: Hệ thống validation và đánh giá chất lượng dữ liệu tự động
 
 ### Webdemo
 - Update sau

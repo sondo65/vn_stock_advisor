@@ -10,7 +10,7 @@ This package provides comprehensive stock analysis including:
 - Advanced scoring and confidence calculation
 """
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 __author__ = "VN Stock Advisor Team"
 
 # Import main components

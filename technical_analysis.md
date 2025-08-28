@@ -2,8 +2,8 @@ Mã cổ phiếu: HPG
             Tên công ty: Hoa Phat Group Joint Stock Company
             Ngành: Basic Resources
             Ngày phân tích: 2025-08-28
-            Giá hiện tại: 27,150 VND
-            Khối lượng giao dịch: 46,869,100 cp
+            Giá hiện tại: 27,000 VND
+            Khối lượng giao dịch: 51,173,500 cp
 
             GIÁ ĐÓNG CỬA GẦN NHẤT:
             - T-1: 26,750 VND (KL: 86,045,749 cp)
@@ -12,28 +12,28 @@ Mã cổ phiếu: HPG
             - T-4: 26,000 VND (KL: 132,417,655 cp)
             
             CHỈ SỐ KỸ THUẬT:
-            - SMA (20): 27,290
-            - SMA (50): 25,654
-            - SMA (200): 22,923
-            - EMA (12): 27,098
-            - EMA (26): 26,767
+            - SMA (20): 27,282
+            - SMA (50): 25,651
+            - SMA (200): 22,922
+            - EMA (12): 27,075
+            - EMA (26): 26,756
             
-            - RSI (14): 43.09
-            - MACD: 0.33
+            - RSI (14): 41.67
+            - MACD: 0.32
             - MACD Signal: 0.56
-            - MACD Histogram: -0.23
+            - MACD Histogram: -0.24
             
-            - Bollinger Upper: 29,408
-            - Bollinger Middle: 27,290
-            - Bollinger Lower: 25,172
+            - Bollinger Upper: 29,403
+            - Bollinger Middle: 27,282
+            - Bollinger Lower: 25,162
 
             CHỈ SỐ KHỐI LƯỢNG:
-            - Khối lượng hiện tại: 46,869,100 cp
-            - Trung bình 10 phiên: 79,705,910 cp
-            - Trung bình 20 phiên: 88,279,723 cp
-            - Trung bình 50 phiên: 63,035,032 cp
-            - Tỷ lệ Khối lượng / Trung bình 20: 0.53
-            - On-Balance Volume (OBV): 635,818,769
+            - Khối lượng hiện tại: 51,173,500 cp
+            - Trung bình 10 phiên: 80,136,350 cp
+            - Trung bình 20 phiên: 88,494,943 cp
+            - Trung bình 50 phiên: 63,121,120 cp
+            - Tỷ lệ Khối lượng / Trung bình 20: 0.58
+            - On-Balance Volume (OBV): 640,123,169
             
             VÙNG HỖ TRỢ VÀ KHÁNG CỰ:
             Vùng kháng cự:
@@ -48,7 +48,7 @@ Vùng hỗ trợ:
             NHẬN ĐỊNH KỸ THUẬT:
             - Xu hướng dài hạn: TĂNG (Giá trên SMA 200, SMA 50 trên SMA 200)
 - Xu hướng ngắn hạn: TRUNG LẬP (Tín hiệu trái chiều giữa SMA ngắn hạn)
-- RSI: TRUNG TÍNH (43.09)
+- RSI: TRUNG TÍNH (41.67)
 - MACD: TIÊU CỰC (MACD dưới Signal Line)
 - Bollinger Bands: TRUNG TÍNH (Giá trong khoảng giữa dải BB)
 - Khối lượng: BÌNH THƯỜNG (50-150% trung bình 20 phiên)
@@ -71,4 +71,11 @@ Vùng hỗ trợ:
 - Vị trí vs VWAP: ABOVE
 - Vị trí vs Value Area: IN_VALUE_AREA
 - Xu hướng volume: LOW
+            
+            
+📊 ĐÁNH GIÁ CHẤT LƯỢNG DỮ LIỆU (PHASE 3):
+✅ Dữ liệu đã qua kiểm tra - Không phát hiện vấn đề
+• Độ tin cậy: CAO
+• Trạng thái: SẴN SÀNG SỬ DỤNG
+
             
