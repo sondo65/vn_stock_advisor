@@ -1,4 +1,4 @@
-# VN Stock Advisor (v.0.4.1)
+# VN Stock Advisor (v.0.5.0)
 
 ## 🇻🇳 Tiếng Việt
 
@@ -17,8 +17,15 @@ VN Stock Advisor không chịu trách nhiệm đối với bất kỳ khoản th
 Sử dụng hệ thống 4 AI Agents để thực hiện những công việc sau:
 - 🔍 Tự động search google và scrape các trang web để thu thập và phân tích tin tức mới nhất về cổ phiếu
 - 📊 Tự động gọi API và RAG để lấy dữ liệu và phân tích cơ bản (P/E, P/B, ROE, EPS,...)
-- 📈 Tự động thu thập giữ liệu giá, khối lượng từ VCI hoặc TCBS, tính toán và phân tích kỹ thuật (SMA, EMA, RSI, MACD, OBV...)
+- 📈 Tự động thu thập dữ liệu giá, khối lượng từ VCI hoặc TCBS, tính toán và phân tích kỹ thuật (SMA, EMA, RSI, MACD, OBV...)
 - 💡 Tổng hợp dữ liệu và đề xuất quyết định đầu tư (Mua/Bán/Giữ)
+
+### Tính năng nâng cao (v0.6.0)
+- 🤖 **Machine Learning Analysis**: Pattern Recognition, Anomaly Detection
+- 📊 **Advanced Technical Analysis**: Fibonacci, Ichimoku Cloud, Volume Profile, Divergence Detection  
+- 💭 **Sentiment Analysis**: Phân tích tâm lý thị trường từ tin tức và social media
+- ⚖️ **Advanced Scoring System**: Hệ thống chấm điểm và tính toán confidence động
+- 🎯 **Risk Analysis**: Comprehensive risk assessment và stress testing
 
 ### Webdemo
 - Update sau

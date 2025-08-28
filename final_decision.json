@@ -1,0 +1,12 @@
+{
+  "stock_ticker": "HPG",
+  "full_name": "Hoa Phat Group Joint Stock Company",
+  "industry": "Basic Resources",
+  "today_date": "2025-08-28",
+  "decision": "GIỮ",
+  "macro_reasoning": "Các thông tin vĩ mô cho thấy triển vọng tích cực cho thị trường chứng khoán Việt Nam trong 2-3 tháng tới. Chứng khoán ABS nhận định đây là thời điểm bước ngoặt, đặc biệt nếu thỏa thuận thương mại Việt Nam – Mỹ diễn ra thuận lợi. Kinh Tế Đô Thị cũng nhấn mạnh nền tảng vĩ mô vững chắc, chính sách hỗ trợ và môi trường lãi suất thấp. Một bài báo khác còn lạc quan về việc VN-Index đạt đỉnh 1.500 điểm. Tuy nhiên, cũng cần lưu ý áp lực tỷ giá và giá vàng do Việt Nam tăng cường mua USD. Điểm số vĩ mô: 7/10. Lý do: Triển vọng chung là tích cực, nhưng vẫn tồn tại rủi ro ngắn hạn cần theo dõi.",
+  "fund_reasoning": "HPG có P/E tương đương trung bình ngành, P/B thấp hơn, cho thấy định giá hợp lý. ROE ở mức trung bình, D/E cho thấy mức độ đòn bẩy tài chính vừa phải. Biên lợi nhuận tốt, nhưng doanh thu và lợi nhuận có xu hướng giảm nhẹ trong 4 quý gần nhất. EPS vẫn ở mức khá. Triển vọng dài hạn ổn định nhờ ngành xây dựng và cơ sở hạ tầng phát triển. Điểm số cơ bản: 6.5/10. Lý do: Định giá hợp lý, nhưng cần theo dõi thêm về tăng trưởng doanh thu và lợi nhuận.",
+  "tech_reasoning": "Xu hướng dài hạn của HPG là tăng, nhưng xu hướng ngắn hạn trung lập. RSI trung tính, MACD tiêu cực. Giá đang ở giữa dải Bollinger Bands. Khối lượng giao dịch bình thường. Phân tích Fibonacci cho thấy xu hướng giảm. Ichimoku Cloud cho tín hiệu mua yếu. Volume Profile cho thấy giá trên VWAP và trong Value Area, nhưng xu hướng volume thấp. Điểm số kỹ thuật: 5/10. Lý do: Tín hiệu kỹ thuật trái chiều, cần thêm xác nhận xu hướng.",
+  "buy_price": 24750.0,
+  "sell_price": 29100.0
+}

@@ -1,0 +1,117 @@
+# Confidence Thresholds Configuration for VN Stock Advisor
+# Defines confidence levels and their corresponding thresholds
+
+# Confidence level definitions
+confidence_levels:
+  very_high:
+    min_threshold: 0.90
+    description: "Rất cao - Khuyến nghị rất mạnh mẽ"
+    color: "#00FF00"  # Green
+    action: "Hành động ngay lập tức"
+    
+  high:
+    min_threshold: 0.80
+    description: "Cao - Khuyến nghị mạnh mẽ"
+    color: "#90EE90"  # Light green
+    action: "Hành động trong 1-2 ngày"
+    
+  medium_high:
+    min_threshold: 0.70
+    description: "Khá cao - Khuyến nghị tích cực"
+    color: "#FFFF00"  # Yellow
+    action: "Hành động trong 3-5 ngày"
+    
+  medium:
+    min_threshold: 0.60
+    description: "Trung bình - Khuyến nghị cân nhắc"
+    color: "#FFA500"  # Orange
+    action: "Theo dõi và chờ tín hiệu xác nhận"
+    
+  medium_low:
+    min_threshold: 0.50
+    description: "Khá thấp - Khuyến nghị thận trọng"
+    color: "#FF8C00"  # Dark orange
+    action: "Chờ đợi hoặc giảm vị thế"
+    
+  low:
+    min_threshold: 0.40
+    description: "Thấp - Khuyến nghị tiêu cực"
+    color: "#FF0000"  # Red
+    action: "Giảm vị thế hoặc thoát"
+    
+  very_low:
+    min_threshold: 0.30
+    description: "Rất thấp - Khuyến nghị rất tiêu cực"
+    color: "#8B0000"  # Dark red
+    action: "Thoát vị thế ngay lập tức"
+
+# Factors affecting confidence calculation
+confidence_factors:
+  data_quality:
+    high_quality_data: 1.0      # Perfect data quality
+    good_quality_data: 0.9      # Good data quality
+    average_quality_data: 0.8   # Average data quality
+    poor_quality_data: 0.6      # Poor data quality
+    very_poor_data: 0.4         # Very poor data quality
+    
+  data_freshness:
+    real_time: 1.0              # Real-time data
+    within_1_hour: 0.95         # Data within 1 hour
+    within_1_day: 0.9           # Data within 1 day
+    within_1_week: 0.8          # Data within 1 week
+    older_than_1_week: 0.6     # Data older than 1 week
+    
+  market_volatility:
+    low_volatility: 1.0         # Low market volatility
+    medium_volatility: 0.9      # Medium market volatility
+    high_volatility: 0.8        # High market volatility
+    extreme_volatility: 0.6     # Extreme market volatility
+    
+  analysis_consistency:
+    high_consistency: 1.0       # High consistency between indicators
+    medium_consistency: 0.9     # Medium consistency
+    low_consistency: 0.7        # Low consistency
+    conflicting_signals: 0.5    # Conflicting signals
+
+# Confidence calculation weights
+confidence_weights:
+  macro_analysis: 0.25
+  fundamental_analysis: 0.35
+  technical_analysis: 0.25
+  risk_analysis: 0.15
+
+# Minimum confidence thresholds for different actions
+action_thresholds:
+  buy:
+    min_confidence: 0.70
+    recommended_confidence: 0.80
+    
+  hold:
+    min_confidence: 0.50
+    recommended_confidence: 0.60
+    
+  sell:
+    min_confidence: 0.60
+    recommended_confidence: 0.70
+    
+  strong_buy:
+    min_confidence: 0.85
+    recommended_confidence: 0.90
+    
+  strong_sell:
+    min_confidence: 0.80
+    recommended_confidence: 0.85
+
+# Confidence adjustment factors
+confidence_adjustments:
+  positive_factors:
+    strong_trend: 0.1           # Strong trend confirmation
+    volume_confirmation: 0.05   # Volume confirms price action
+    fundamental_strength: 0.1   # Strong fundamental metrics
+    low_risk: 0.05              # Low risk indicators
+    
+  negative_factors:
+    weak_trend: -0.1            # Weak or unclear trend
+    low_volume: -0.05           # Low volume
+    fundamental_weakness: -0.1   # Weak fundamental metrics
+    high_risk: -0.05            # High risk indicators

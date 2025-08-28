@@ -3,7 +3,7 @@ from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.knowledge.source.json_knowledge_source import JSONKnowledgeSource
 from crewai_tools import SerperDevTool, ScrapeWebsiteTool, WebsiteSearchTool, FirecrawlScrapeWebsiteTool
-from vn_stock_advisor.tools.custom_tool import FundDataTool, TechDataTool, FileReadTool
+from vn_stock_advisor.tools.custom_tool import FundDataTool, TechDataTool, FileReadTool, SentimentAnalysisTool
 from pydantic import BaseModel, Field
 from typing import List, Literal
 from dotenv import load_dotenv
@@ -14,8 +14,8 @@ warnings.filterwarnings("ignore") # Suppress unimportant warnings
 # Load environment variables
 load_dotenv()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-GEMINI_MODEL = os.environ.get("MODEL")
-GEMINI_REASONING_MODEL = os.environ.get("MODEL_REASONING")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL")
+GEMINI_REASONING_MODEL = os.environ.get("GEMINI_REASONING_MODEL")
 SERPER_API_KEY = os.environ.get("SERPER_API_KEY")
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY")
 
@@ -39,6 +39,7 @@ gemini_reasoning_llm = LLM(
 file_read_tool = FileReadTool(file_path="knowledge/PE_PB_industry_average.json")
 fund_tool=FundDataTool()
 tech_tool=TechDataTool(result_as_answer=True)
+sentiment_tool=SentimentAnalysisTool()
 scrape_tool = ScrapeWebsiteTool()
 search_tool = SerperDevTool(
     country="vn",
@@ -97,7 +98,7 @@ class VnStockAdvisor():
             config=self.agents_config["stock_news_researcher"],
             verbose=True,
             llm=gemini_llm,
-            tools=[search_tool, scrape_tool],
+            tools=[search_tool, scrape_tool, sentiment_tool],
             max_rpm=5
         )
 

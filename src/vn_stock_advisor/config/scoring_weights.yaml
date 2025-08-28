@@ -1,0 +1,98 @@
+# Scoring Weights Configuration for VN Stock Advisor
+# Dynamic weights based on industry and market conditions
+
+# Base weights for different analysis components
+base_weights:
+  macro_analysis: 0.25      # Economic and policy analysis
+  fundamental_analysis: 0.35 # Financial ratios and company performance
+  technical_analysis: 0.25  # Price patterns and technical indicators
+  risk_analysis: 0.15       # Risk metrics and volatility
+
+# Industry-specific weight adjustments
+industry_adjustments:
+  "Tài chính ngân hàng":
+    macro_analysis: 0.30    # Higher weight due to policy sensitivity
+    fundamental_analysis: 0.40
+    technical_analysis: 0.20
+    risk_analysis: 0.10
+    
+  "Bất động sản":
+    macro_analysis: 0.35    # Very sensitive to economic policies
+    fundamental_analysis: 0.30
+    technical_analysis: 0.25
+    risk_analysis: 0.10
+    
+  "Kim loại và khai khoáng":
+    macro_analysis: 0.20    # Global commodity prices
+    fundamental_analysis: 0.40
+    technical_analysis: 0.25
+    risk_analysis: 0.15
+    
+  "Công nghệ thông tin":
+    macro_analysis: 0.15    # Less sensitive to macro
+    fundamental_analysis: 0.45
+    technical_analysis: 0.30
+    risk_analysis: 0.10
+    
+  "Thực phẩm và đồ uống":
+    macro_analysis: 0.20    # Defensive sector
+    fundamental_analysis: 0.35
+    technical_analysis: 0.25
+    risk_analysis: 0.20
+
+# Market condition adjustments
+market_conditions:
+  bull_market:
+    macro_analysis: 0.20
+    fundamental_analysis: 0.30
+    technical_analysis: 0.35
+    risk_analysis: 0.15
+    
+  bear_market:
+    macro_analysis: 0.35
+    fundamental_analysis: 0.40
+    technical_analysis: 0.15
+    risk_analysis: 0.10
+    
+  sideways_market:
+    macro_analysis: 0.25
+    fundamental_analysis: 0.35
+    technical_analysis: 0.30
+    risk_risk_analysis: 0.10
+
+# Confidence level thresholds
+confidence_thresholds:
+  high_confidence: 0.80     # 80%+ confidence
+  medium_confidence: 0.60   # 60-79% confidence
+  low_confidence: 0.40      # 40-59% confidence
+  very_low_confidence: 0.20 # Below 40% confidence
+
+# Scoring ranges for each component
+scoring_ranges:
+  macro_analysis:
+    excellent: [8.5, 10.0]
+    good: [7.0, 8.4]
+    average: [5.0, 6.9]
+    poor: [3.0, 4.9]
+    very_poor: [0.0, 2.9]
+    
+  fundamental_analysis:
+    excellent: [8.5, 10.0]
+    good: [7.0, 8.4]
+    average: [5.0, 6.9]
+    poor: [3.0, 4.9]
+    very_poor: [0.0, 2.9]
+    
+  technical_analysis:
+    excellent: [8.5, 10.0]
+    good: [7.0, 8.4]
+    average: [5.0, 6.9]
+    poor: [3.0, 4.9]
+    very_poor: [0.0, 2.9]
+    
+  risk_analysis:
+    excellent: [8.5, 10.0]  # Low risk
+    good: [7.0, 8.4]
+    average: [5.0, 6.9]
+    poor: [3.0, 4.9]
+    very_poor: [0.0, 2.9]  # High risk

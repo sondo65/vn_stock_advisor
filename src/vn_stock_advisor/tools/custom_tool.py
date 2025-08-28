@@ -6,6 +6,32 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 
+try:
+    import talib as ta
+    TA_AVAILABLE = True
+except ImportError:
+    TA_AVAILABLE = False
+    print("Warning: TA-Lib not available. Some technical indicators may not work.")
+
+# Import ML and Technical Analysis modules
+try:
+    from ..ml.pattern_recognition import PatternRecognition
+    from ..ml.anomaly_detection import AnomalyDetection
+    from ..ml.sentiment_analyzer import SentimentAnalyzer
+    from ..technical.fibonacci_calculator import FibonacciCalculator
+    from ..technical.ichimoku_analyzer import IchimokuAnalyzer
+    from ..technical.volume_analyzer import VolumeAnalyzer
+    from ..technical.divergence_detector import DivergenceDetector
+except ImportError as e:
+    print(f"Warning: Could not import ML/Technical modules: {e}")
+    PatternRecognition = None
+    AnomalyDetection = None
+    SentimentAnalyzer = None
+    FibonacciCalculator = None
+    IchimokuAnalyzer = None
+    VolumeAnalyzer = None
+    DivergenceDetector = None
+
 class MyToolInput(BaseModel):
     """Input schema for MyCustomTool."""
     argument: str = Field(..., description="Mã cổ phiếu.")
@@ -168,6 +194,12 @@ class TechDataTool(BaseTool):
             
             NHẬN ĐỊNH KỸ THUẬT:
             {self._get_technical_analysis(latest_indicators, current_price, support_resistance)}
+            
+            PHÂN TÍCH MACHINE LEARNING:
+            {self._run_ml_analysis(tech_data)}
+            
+            PHÂN TÍCH KỸ THUẬT NÂNG CAO:
+            {self._run_advanced_technical_analysis(tech_data)}
             """
             return result
             
@@ -370,6 +402,166 @@ class TechDataTool(BaseTool):
                 analysis.append("- Tín hiệu khối lượng: TIÊU CỰC (Khối lượng cao kèm giá giảm)")
 
         return "\n".join(analysis)
+    
+    def _run_ml_analysis(self, data_with_indicators):
+        """Run ML analysis on the data."""
+        try:
+            if not all([PatternRecognition, AnomalyDetection]):
+                return "ML modules không khả dụng"
+            
+            prices = data_with_indicators['close'].tolist()
+            volumes = data_with_indicators['volume'].tolist()
+            
+            ml_results = []
+            
+            # Pattern Recognition
+            pattern_analyzer = PatternRecognition()
+            patterns = pattern_analyzer.analyze_patterns(prices, volumes)
+            if patterns:
+                pattern_summary = pattern_analyzer.get_pattern_summary(patterns)
+                ml_results.append(f"📊 PATTERN RECOGNITION:")
+                ml_results.append(f"- Phát hiện {pattern_summary['total_patterns']} patterns")
+                ml_results.append(f"- Tín hiệu chính: {pattern_summary['primary_signal']}")
+                ml_results.append(f"- Khuyến nghị: {pattern_summary['recommendation']}")
+            
+            # Anomaly Detection
+            anomaly_detector = AnomalyDetection()
+            anomaly_analysis = anomaly_detector.comprehensive_anomaly_analysis(prices, volumes)
+            if anomaly_analysis.get('total_anomalies', 0) > 0:
+                ml_results.append(f"🚨 ANOMALY DETECTION:")
+                ml_results.append(f"- Phát hiện {anomaly_analysis['total_anomalies']} bất thường")
+                ml_results.append(f"- Mức độ rủi ro: {anomaly_analysis['risk_level']}")
+                ml_results.append(f"- Tóm tắt: {anomaly_analysis['summary']}")
+            
+            return "\n".join(ml_results) if ml_results else "Không phát hiện pattern hoặc anomaly đáng kể"
+            
+        except Exception as e:
+            return f"Lỗi ML analysis: {str(e)}"
+    
+    def _run_advanced_technical_analysis(self, data_with_indicators):
+        """Run advanced technical analysis."""
+        try:
+            if not all([FibonacciCalculator, IchimokuAnalyzer, VolumeAnalyzer, DivergenceDetector]):
+                return "Advanced technical modules không khả dụng"
+            
+            prices = data_with_indicators['close'].tolist()
+            highs = data_with_indicators['high'].tolist()
+            lows = data_with_indicators['low'].tolist()
+            volumes = data_with_indicators['volume'].tolist()
+            
+            advanced_results = []
+            
+            # Fibonacci Analysis
+            fib_calc = FibonacciCalculator()
+            fib_summary = fib_calc.get_fibonacci_summary(prices)
+            if 'error' not in fib_summary:
+                advanced_results.append(f"📐 FIBONACCI ANALYSIS:")
+                advanced_results.append(f"- Xu hướng: {fib_summary['trend_direction']}")
+                advanced_results.append(f"- Swing High: {fib_summary['swing_high']:,.0f}")
+                advanced_results.append(f"- Swing Low: {fib_summary['swing_low']:,.0f}")
+                if fib_summary.get('price_analysis', {}).get('recommendation'):
+                    advanced_results.append(f"- Khuyến nghị: {fib_summary['price_analysis']['recommendation']}")
+            
+            # Ichimoku Analysis
+            ichimoku_analyzer = IchimokuAnalyzer()
+            ichimoku_summary = ichimoku_analyzer.get_ichimoku_summary(highs, lows, prices)
+            if 'error' not in ichimoku_summary:
+                trading_signal = ichimoku_summary['trading_signal']
+                advanced_results.append(f"☁️ ICHIMOKU ANALYSIS:")
+                advanced_results.append(f"- Tín hiệu: {trading_signal['signal']} ({trading_signal['strength']})")
+                advanced_results.append(f"- Độ tin cậy: {trading_signal['confidence']:.1%}")
+                advanced_results.append(f"- Mô tả: {trading_signal['description']}")
+            
+            # Volume Profile Analysis
+            volume_analyzer = VolumeAnalyzer()
+            volume_summary = volume_analyzer.get_volume_summary(prices, volumes, highs, lows)
+            if 'error' not in volume_summary:
+                advanced_results.append(f"📊 VOLUME PROFILE:")
+                advanced_results.append(f"- Vị trí vs VWAP: {volume_summary['price_vs_vwap']}")
+                advanced_results.append(f"- Vị trí vs Value Area: {volume_summary['volume_profile_position']}")
+                volume_trend = volume_summary['volume_trend']
+                advanced_results.append(f"- Xu hướng volume: {volume_trend['volume_assessment']}")
+            
+            # Divergence Analysis
+            divergence_detector = DivergenceDetector()
+            divergence_analysis = divergence_detector.get_comprehensive_divergence_analysis(prices, volumes, highs, lows)
+            if divergence_analysis.get('total_divergences', 0) > 0:
+                advanced_results.append(f"🔄 DIVERGENCE ANALYSIS:")
+                advanced_results.append(f"- Tổng divergences: {divergence_analysis['total_divergences']}")
+                advanced_results.append(f"- Tín hiệu tổng thể: {divergence_analysis['overall_signal']}")
+                advanced_results.append(f"- Tóm tắt: {divergence_analysis['summary']}")
+            
+            return "\n".join(advanced_results) if advanced_results else "Không có tín hiệu advanced technical đáng kể"
+            
+        except Exception as e:
+            return f"Lỗi advanced technical analysis: {str(e)}"
+
+class SentimentAnalysisTool(BaseTool):
+    name: str = "Công cụ phân tích sentiment từ tin tức và social media."
+    description: str = "Công cụ phân tích sentiment từ tin tức, báo cáo, và social media để đánh giá tâm lý thị trường đối với cổ phiếu."
+    args_schema: Type[BaseModel] = MyToolInput
+
+    def _run(self, argument: str) -> str:
+        try:
+            if not SentimentAnalyzer:
+                return "Sentiment Analysis module không khả dụng"
+            
+            # Initialize sentiment analyzer
+            sentiment_analyzer = SentimentAnalyzer()
+            
+            # Sample news articles (in real implementation, this would fetch from news APIs)
+            sample_news = [
+                {
+                    "title": f"Cổ phiếu {argument.upper()} có triển vọng tích cực trong quý tới",
+                    "content": f"Các chuyên gia dự báo {argument.upper()} sẽ có kết quả kinh doanh khả quan nhờ tăng trưởng doanh thu và cải thiện biên lợi nhuận.",
+                    "source": "VnExpress"
+                },
+                {
+                    "title": f"Áp lực bán tháo trên {argument.upper()} do lo ngại về tình hình kinh tế",
+                    "content": f"Nhà đầu tư lo ngại về tác động của lạm phát đến kết quả kinh doanh của {argument.upper()}, gây áp lực bán mạnh.",
+                    "source": "CafeF"
+                },
+                {
+                    "title": f"Khuyến nghị mua {argument.upper()} với mục tiêu giá cao hơn",
+                    "content": f"Công ty chứng khoán ABC nâng hạng {argument.upper()} lên MUA với mục tiêu giá tăng 20% so với hiện tại.",
+                    "source": "Đầu tư Chứng khoán"
+                }
+            ]
+            
+            # Analyze sentiment
+            sentiment_result = sentiment_analyzer.analyze_news_batch(sample_news)
+            
+            result = f"""
+=== PHÂN TÍCH SENTIMENT CHO MÃ {argument.upper()} ===
+
+📊 TỔNG QUAN SENTIMENT:
+- Tổng số bài báo phân tích: {sentiment_result['total_articles']}
+- Sentiment trung bình: {sentiment_result['average_sentiment']:.2f}
+- Độ tin cậy trung bình: {sentiment_result['average_confidence']:.1%}
+- Outlook thị trường: {sentiment_result['market_outlook']}
+
+📈 PHÂN BỐ SENTIMENT:
+- Bài báo tích cực: {sentiment_result['positive_articles']} ({sentiment_result['sentiment_distribution']['positive']:.1%})
+- Bài báo tiêu cực: {sentiment_result['negative_articles']} ({sentiment_result['sentiment_distribution']['negative']:.1%})
+- Bài báo trung tính: {sentiment_result['neutral_articles']} ({sentiment_result['sentiment_distribution']['neutral']:.1%})
+
+🎯 TÍN HIỆU SENTIMENT:
+- Tín hiệu bullish: {sentiment_result['bullish_signals']}
+- Tín hiệu bearish: {sentiment_result['bearish_signals']}
+
+🔑 TỪ KHÓA QUAN TRỌNG:
+{', '.join(sentiment_result['top_key_phrases']) if sentiment_result['top_key_phrases'] else 'Không có từ khóa nổi bật'}
+
+💡 KHUYẾN NGHỊ:
+{sentiment_result['recommendation']}
+
+⚠️ LƯU Ý: Đây là phân tích mẫu với dữ liệu giả lập. Trong thực tế cần tích hợp với API tin tức thực tế.
+"""
+            
+            return result
+            
+        except Exception as e:
+            return f"Lỗi khi phân tích sentiment cho mã {argument}: {str(e)}"
     
 # Re-write basic FileReadTool but with utf-8 encoding
 class FileReadToolSchema(BaseModel):
