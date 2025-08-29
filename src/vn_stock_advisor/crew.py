@@ -4,6 +4,7 @@ from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.knowledge.source.json_knowledge_source import JSONKnowledgeSource
 from crewai_tools import SerperDevTool, ScrapeWebsiteTool, WebsiteSearchTool, FirecrawlScrapeWebsiteTool
 from vn_stock_advisor.tools.custom_tool import FundDataTool, TechDataTool, FileReadTool, SentimentAnalysisTool
+from vn_stock_advisor.tools.macro_analysis_tool import macro_analysis_tool
 from pydantic import BaseModel, Field
 from typing import List, Literal
 from dotenv import load_dotenv
@@ -98,7 +99,7 @@ class VnStockAdvisor():
             config=self.agents_config["stock_news_researcher"],
             verbose=True,
             llm=gemini_llm,
-            tools=[search_tool, scrape_tool, sentiment_tool],
+            tools=[macro_analysis_tool, sentiment_tool],
             max_rpm=5
         )
 

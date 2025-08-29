@@ -1,12 +1,12 @@
 {
   "stock_ticker": "ABC",
-  "full_name": "Công ty Cổ phần ABC",
-  "industry": "Phần mềm và dịch vụ công nghệ thông tin",
-  "today_date": "2025-10-27",
-  "decision": "GIỮ",
-  "macro_reasoning": "Thị trường chứng khoán Việt Nam đang trong xu hướng tích cực với tăng trưởng GDP cao, triển vọng nâng hạng thị trường, và dòng vốn ngoại đổ vào.  Tuy nhiên, rủi ro từ kinh tế Mỹ vẫn hiện hữu.  Việc VinaCapital khuyến nghị đầu tư dài hạn cho thấy sự lạc quan về triển vọng dài hạn nhưng cũng cảnh báo về rủi ro ngắn hạn.  Điểm số: 7/10. Lý do: Mặc dù triển vọng vĩ mô tích cực, rủi ro vẫn tồn tại, đòi hỏi nhà đầu tư cần thận trọng và có chiến lược dài hạn.",
-  "fund_reasoning": "Do thiếu dữ liệu cụ thể về ABC, tôi không thể đưa ra đánh giá chính xác về định giá và hiệu quả hoạt động tài chính.  Tuy nhiên, dựa trên P/E và P/B trung bình ngành, tôi giả định ABC có P/E là 18 và P/B là 4.5, cho thấy định giá tương đối hợp lý.  Triển vọng ngành công nghệ thông tin tích cực. Điểm số: 6/10. Lý do: Thiếu dữ liệu cụ thể, đánh giá dựa trên giả định và thông tin chung về ngành.",
-  "tech_reasoning": "Giả định phân tích kỹ thuật cho thấy xu hướng giá hiện tại là tích lũy trong một kênh giá.  Vùng hỗ trợ mạnh nằm ở mức 100, vùng kháng cự mạnh ở mức 120.  Chỉ báo RSI cho thấy cổ phiếu không quá mua vào hay bán quá mức.  Điểm số: 7/10. Lý do: Xu hướng tích lũy cho thấy sự ổn định, nhưng cần theo dõi sát sao để xác định xu hướng tiếp theo.",
-  "buy_price": 105.0,
-  "sell_price": 115.0
+  "full_name": "ABC Company",
+  "industry": "Technology",
+  "today_date": "2024-07-26",
+  "decision": "Buy",
+  "macro_reasoning": "The current macroeconomic environment is favorable for growth stocks.  Interest rates are low and there is increased government spending on technology initiatives.",
+  "fund_reasoning": "Based on the positive industry outlook and strong macroeconomic conditions, the company is expected to perform well.",
+  "tech_reasoning": "Hypothetical technical analysis suggests a potential upward trend.",
+  "buy_price": 10.0,
+  "sell_price": 15.0
 }

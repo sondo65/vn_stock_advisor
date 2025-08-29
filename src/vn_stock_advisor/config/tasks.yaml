@@ -1,25 +1,30 @@
 news_collecting:
   description: >
-    Tìm kiếm và tóm tắt 3 bài báo có ảnh hưởng lớn nhất đến thị trường chứng khoán Việt Nam
-    trong vòng 3 tháng tính đến ngày hiện tại ({current_date}).
+    Thu thập và phân tích thông tin vĩ mô, tin tức thị trường và xu hướng kinh tế ảnh hưởng đến 
+    thị trường chứng khoán Việt Nam trong ngày {current_date}.
 
+    QUAN TRỌNG: Task này sử dụng hệ thống cache thông minh để tránh lặp lại phân tích.
+    
     Quy trình thực hiện:
-    1. Sử dụng công cụ `SerperDevTool` để tìm các bài báo liên quan đến tin tức vĩ mô và chính sách kinh tế Việt Nam (ví dụ: dự báo tăng trưởng, lãi suất, thuế, đầu tư công, tỉ giá hối đoái...). Ưu tiên kết quả từ các nguồn uy tín.
-    2. Chọn 3 bài báo tiêu biểu nhất dựa trên mức độ ảnh hưởng, độ tin cậy và mức độ liên quan đến thị trường chứng khoán Việt Nam. KHÔNG chọn các bài viết từ nguồn vietstock.vn.
-    3. Sử dụng công cụ `ScrapeWebsiteTool` để thu thập nội dung chi tiết của từng bài báo đã chọn. KHÔNG thu thập nội dung các bài viết từ nguồn vietstock.vn.
-    4. Tóm tắt nội dung chính của từng bài trong 3–5 câu, tập trung vào tác động đến thị trường chứng khoán.
+    1. Sử dụng công cụ `macro_analysis_tool` để thực hiện phân tích vĩ mô và tin tức thị trường.
+    2. Công cụ sẽ tự động kiểm tra cache - nếu đã có phân tích trong ngày sẽ sử dụng lại.
+    3. Chỉ thực hiện phân tích mới khi chưa có dữ liệu cache hoặc cache đã hết hạn (24 giờ).
+    4. Kết quả bao gồm: tin tức thị trường, xu hướng kinh tế, chính sách tài chính và tâm lý thị trường.
 
-    Giới hạn:
-    - Chỉ chọn bài viết có ngày đăng trong vòng 3 tháng trở lại.
-    - KHÔNG lựa chọn hay sử dụng các bài viết từ nguồn vietstock.vn.
-    - Chỉ chọn bài có tiêu đề và nội dung thể hiện rõ ảnh hưởng đến thị trường tài chính/chứng khoán Việt Nam.
-    - KHÔNG được tự tạo ra nội dung. Câu trả lời phải dựa trên dữ liệu trích xuất từ 2 công cụ `SerperDevTool` và `ScrapeWebsiteTool`.
+    Ưu điểm của hệ thống cache:
+    - Tiết kiệm token API và thời gian xử lý
+    - Đảm bảo tính nhất quán trong phân tích vĩ mô cho tất cả cổ phiếu trong cùng ngày
+    - Tự động cập nhật mỗi 24 giờ với thông tin mới nhất
+    
+    Lưu ý: Không cần sử dụng SerperDevTool hay ScrapeWebsiteTool trực tiếp - đã được tích hợp trong macro_analysis_tool.
   expected_output: >
-    Một danh sách dạng markdown gồm 3 mục, mỗi mục bao gồm:
-    - Tiêu đề bài báo (in đậm)
-    - Ngày đăng
-    - Nguồn (kèm liên kết URL)
-    - Tóm tắt 3–5 câu bằng tiếng Việt nêu rõ nội dung chính và ảnh hưởng đến thị trường
+    Báo cáo phân tích vĩ mô và thị trường bằng tiếng Việt, bao gồm:
+    - Tóm tắt tin tức và sự kiện quan trọng ảnh hưởng đến thị trường
+    - Phân tích xu hướng kinh tế và chính sách tài chính
+    - Đánh giá tâm lý thị trường và dòng tiền
+    - Tác động dự kiến đến các nhóm ngành và cổ phiếu
+    
+    Kết quả được tối ưu hóa với cache để sử dụng chung cho tất cả phân tích cổ phiếu trong ngày.
 
   agent: stock_news_researcher
 
