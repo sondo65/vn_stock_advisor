@@ -1,12 +1,12 @@
 {
-  "stock_ticker": "ABC",
-  "full_name": "ABC Company",
-  "industry": "Technology",
-  "today_date": "2024-07-26",
-  "decision": "Buy",
-  "macro_reasoning": "The current macroeconomic environment is favorable for growth stocks.  Interest rates are low and there is increased government spending on technology initiatives.",
-  "fund_reasoning": "Based on the positive industry outlook and strong macroeconomic conditions, the company is expected to perform well.",
-  "tech_reasoning": "Hypothetical technical analysis suggests a potential upward trend.",
-  "buy_price": 10.0,
-  "sell_price": 15.0
+  "stock_ticker": "STG",
+  "full_name": "STG",
+  "industry": "Unknown",
+  "today_date": "2025-08-29",
+  "decision": "SELL",
+  "macro_reasoning": "Stable interest rates and positive economic indicators support investor sentiment.",
+  "fund_reasoning": "High P/E ratio compared to industry average suggests overvaluation.",
+  "tech_reasoning": "Incomplete technical analysis prevents a definitive conclusion.",
+  "buy_price": 40000.0,
+  "sell_price": 52500.0
 }

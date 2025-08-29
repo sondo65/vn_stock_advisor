@@ -133,8 +133,10 @@ class VnStockAdvisor():
     
     @agent
     def investment_strategist(self) -> Agent:
+        from .tools import InvestmentDecisionTool
         return Agent(
             config=self.agents_config["investment_strategist"],
+            tools=[InvestmentDecisionTool()],
             verbose=True,
             llm=gemini_reasoning_llm,
             max_rpm=5

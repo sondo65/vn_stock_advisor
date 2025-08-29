@@ -506,7 +506,11 @@ async def run_stock_analysis(analysis_id: str, symbol: str, request: StockAnalys
             ai_result = None
             if request.analysis_type == "comprehensive":
                 crew = VnStockAdvisor()
-                ai_result = crew.crew().kickoff()
+                inputs = {
+                    'symbol': symbol,
+                    'current_date': datetime.now().strftime('%Y-%m-%d')
+                }
+                ai_result = crew.crew().kickoff(inputs=inputs)
             
             # Compile results
             result = {

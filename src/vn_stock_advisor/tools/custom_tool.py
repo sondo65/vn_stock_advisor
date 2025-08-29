@@ -66,15 +66,30 @@ class FundDataTool(BaseTool):
             income_df = stock.finance.income_statement(period="quarter")
             company = Vnstock().stock(symbol=argument, source='TCBS').company
 
-            # Get company full name & industry
-            full_name = company.profile().get("company_name").iloc[0]
-            industry = company.overview().get("industry").iloc[0]
+            # Get company full name & industry with error handling
+            try:
+                profile_data = company.profile().get("company_name")
+                full_name = profile_data.iloc[0] if not profile_data.empty else f"Company {argument}"
+            except (IndexError, AttributeError):
+                full_name = f"Company {argument}"
+            
+            try:
+                overview_data = company.overview().get("industry")
+                industry = overview_data.iloc[0] if not overview_data.empty else "Unknown"
+            except (IndexError, AttributeError):
+                industry = "Unknown"
 
-            # Get data from the latest row of DataFrame for financial ratios
+            # Get data from the latest row of DataFrame for financial ratios with error handling
+            if financial_ratios.empty:
+                return f"Không có dữ liệu tài chính cho cổ phiếu {argument}"
+            
             latest_ratios = financial_ratios.iloc[0]
 
-            # Get last 4 quarters of income statement
-            last_4_quarters = income_df.head(4)
+            # Get last 4 quarters of income statement with error handling
+            if income_df.empty:
+                quarterly_trends = ["Không có dữ liệu báo cáo thu nhập"]
+            else:
+                last_4_quarters = income_df.head(4)
             
             # Extract financial ratios data
             pe_ratio = latest_ratios.get("price_to_earning", "N/A")
@@ -86,26 +101,32 @@ class FundDataTool(BaseTool):
             profit_margin = latest_ratios.get("gross_profit_margin", "N/A")
             evebitda = latest_ratios.get("value_before_ebitda", "N/A")
 
-            # Format quarterly income data
-            quarterly_trends = []
-            for i, (_, quarter) in enumerate(last_4_quarters.iterrows()):          
-                # Handle formatting of values properly
-                revenue = quarter.get("revenue", "N/A")
-                revenue_formatted = f"{revenue:,.0f}" if isinstance(revenue, (int, float)) else revenue
-                
-                gross_profit = quarter.get("gross_profit", "N/A")
-                gross_profit_formatted = f"{gross_profit:,.0f}" if isinstance(gross_profit, (int, float)) else gross_profit
-                
-                post_tax_profit = quarter.get("post_tax_profit", "N/A")
-                post_tax_profit_formatted = f"{post_tax_profit:,.0f}" if isinstance(post_tax_profit, (int, float)) else post_tax_profit
-                
-                quarter_info = f"""
-                Quý T - {i + 1}:
-                - Doanh thu thuần: {revenue_formatted} tỉ đồng
-                - Lợi nhuận gộp: {gross_profit_formatted} tỉ đồng
-                - Lợi nhuận sau thuế: {post_tax_profit_formatted} tỉ đồng
-                """
-                quarterly_trends.append(quarter_info)
+                        # Format quarterly income data only if we have data
+            if 'last_4_quarters' in locals() and not last_4_quarters.empty:
+                quarterly_trends = []
+                for i, (_, quarter) in enumerate(last_4_quarters.iterrows()):
+                    try:
+                        # Handle formatting of values properly
+                        revenue = quarter.get("revenue", "N/A")
+                        revenue_formatted = f"{revenue:,.0f}" if isinstance(revenue, (int, float)) and revenue != "N/A" else revenue
+                        
+                        gross_profit = quarter.get("gross_profit", "N/A")
+                        gross_profit_formatted = f"{gross_profit:,.0f}" if isinstance(gross_profit, (int, float)) and gross_profit != "N/A" else gross_profit
+                        
+                        post_tax_profit = quarter.get("post_tax_profit", "N/A")
+                        post_tax_profit_formatted = f"{post_tax_profit:,.0f}" if isinstance(post_tax_profit, (int, float)) and post_tax_profit != "N/A" else post_tax_profit
+                        
+                        quarter_info = f"""
+                        Quý T - {i + 1}:
+                        - Doanh thu thuần: {revenue_formatted} tỉ đồng
+                        - Lợi nhuận gộp: {gross_profit_formatted} tỉ đồng
+                        - Lợi nhuận sau thuế: {post_tax_profit_formatted} tỉ đồng
+                        """
+                        quarterly_trends.append(quarter_info)
+                    except Exception as quarter_error:
+                        quarterly_trends.append(f"Quý T - {i + 1}: Lỗi dữ liệu")
+            else:
+                quarterly_trends = ["Không có dữ liệu báo cáo thu nhập"]
             
             return f"""Mã cổ phiếu: {argument}
             Tên công ty: {full_name}
@@ -138,9 +159,18 @@ class TechDataTool(BaseTool):
             stock = Vnstock().stock(symbol=argument, source="TCBS")
             company = Vnstock().stock(symbol=argument, source='TCBS').company
 
-            # Get company full name & industry
-            full_name = company.profile().get("company_name").iloc[0]
-            industry = company.overview().get("industry").iloc[0]
+            # Get company full name & industry with error handling
+            try:
+                profile_data = company.profile().get("company_name")
+                full_name = profile_data.iloc[0] if not profile_data.empty else f"Company {argument}"
+            except (IndexError, AttributeError):
+                full_name = f"Company {argument}"
+            
+            try:
+                overview_data = company.overview().get("industry")
+                industry = overview_data.iloc[0] if not overview_data.empty else "Unknown"
+            except (IndexError, AttributeError):
+                industry = "Unknown"
             
             # Phase 3: Initialize data validation if available
             data_validator = None
@@ -165,11 +195,14 @@ class TechDataTool(BaseTool):
             # Identify support and resistance levels
             support_resistance = self._find_support_resistance(price_data)
             
-            # Get recent price and volume data
+            # Get recent price and volume data with error handling
+            if len(price_data) == 0:
+                return f"Không có dữ liệu giá cho cổ phiếu {argument}"
+            
             current_price = price_data['close'].iloc[-1]
-            recent_prices = price_data['close'].iloc[-5:-1]
+            recent_prices = price_data['close'].iloc[-5:-1] if len(price_data) >= 5 else price_data['close']
             current_volume = price_data['volume'].iloc[-1]
-            recent_volumes = price_data['volume'].iloc[-5:-1]
+            recent_volumes = price_data['volume'].iloc[-5:-1] if len(price_data) >= 5 else price_data['volume']
             
             # Format result
             latest_indicators = tech_data.iloc[-1]
@@ -304,6 +337,9 @@ class TechDataTool(BaseTool):
         support_levels = data[data['local_min'] == 1]['low'].values
         
         # Group close resistance/support levels
+        if len(data) == 0:
+            return {"support_levels": [], "resistance_levels": []}
+        
         current_price = data['close'].iloc[-1]
         
         # Function to cluster price levels

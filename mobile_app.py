@@ -7,6 +7,19 @@ import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
 import json
+import pandas as pd
+import time
+
+# Import optimized scanner
+try:
+    from src.vn_stock_advisor.scanner import (
+        LightweightStockScanner,
+        quick_scan_market,
+        find_opportunities
+    )
+    SCANNER_AVAILABLE = True
+except ImportError:
+    SCANNER_AVAILABLE = False
 
 # Mobile-first configuration
 st.set_page_config(
@@ -109,15 +122,18 @@ class MobileStockApp:
         """, unsafe_allow_html=True)
         
         # Navigation
-        tab1, tab2, tab3 = st.tabs(["🔍 Phân tích", "📊 Watchlist", "⚙️ Cài đặt"])
+        tab1, tab2, tab3, tab4 = st.tabs(["🔍 Phân tích", "⚡ Quét Nhanh", "📊 Watchlist", "⚙️ Cài đặt"])
         
         with tab1:
             self.render_analysis_tab()
         
         with tab2:
-            self.render_watchlist_tab()
+            self.render_mobile_scanner()
         
         with tab3:
+            self.render_watchlist_tab()
+        
+        with tab4:
             self.render_settings_tab()
     
     def render_analysis_tab(self):
@@ -287,6 +303,128 @@ class MobileStockApp:
         
         if st.button("📥 Cài đặt PWA", use_container_width=True):
             st.success("PWA đã được cài đặt!")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    def render_mobile_scanner(self):
+        """Render mobile-optimized scanner interface."""
+        st.markdown('<div class="mobile-card">', unsafe_allow_html=True)
+        st.markdown("### ⚡ Quét Nhanh Mobile")
+        st.markdown("🎯 Tìm cơ hội đầu tư nhanh chóng")
+        
+        if not SCANNER_AVAILABLE:
+            st.error("❌ Scanner không khả dụng")
+            st.markdown('</div>', unsafe_allow_html=True)
+            return
+        
+        # Mobile-friendly controls
+        scan_preset = st.selectbox(
+            "🎯 Chọn preset",
+            [
+                "🔥 Top cơ hội (VN30)",
+                "💎 Cổ phiếu giá trị", 
+                "🚀 Momentum mạnh",
+                "📈 Tùy chỉnh"
+            ],
+            key="mobile_scan_preset"
+        )
+        
+        # Custom input for mobile
+        if scan_preset == "📈 Tùy chỉnh":
+            mobile_stocks = st.text_input(
+                "📝 Mã cổ phiếu",
+                placeholder="VIC,VCB,FPT",
+                key="mobile_custom_stocks"
+            )
+        
+        # Simple scan button
+        if st.button("⚡ Quét Ngay", type="primary", use_container_width=True, key="mobile_scan"):
+            with st.spinner("🔍 Đang quét..."):
+                try:
+                    # Prepare stock list based on preset
+                    if scan_preset == "🔥 Top cơ hội (VN30)":
+                        stock_list = ['VIC', 'VCB', 'FPT', 'HPG', 'VNM', 'MSN', 'MWG', 'TCB', 'BID', 'ACB']
+                        min_score = 6.5
+                    elif scan_preset == "💎 Cổ phiếu giá trị":
+                        stock_list = ['HPG', 'CTG', 'VCB', 'BID', 'TCB', 'STB', 'VIC', 'VHM']
+                        min_score = 6.0
+                    elif scan_preset == "🚀 Momentum mạnh":
+                        stock_list = ['FPT', 'VNM', 'MSN', 'MWG', 'VJC', 'SAB', 'VIC', 'HPG']
+                        min_score = 6.5
+                    else:  # Tùy chỉnh
+                        if not mobile_stocks:
+                            st.error("❌ Vui lòng nhập mã cổ phiếu")
+                            return
+                        stock_list = [s.strip().upper() for s in mobile_stocks.split(',') if s.strip()]
+                        min_score = 5.5
+                    
+                    # Run lightweight scan
+                    scanner = LightweightStockScanner(max_workers=2, use_cache=True)
+                    
+                    start_time = time.time()
+                    results = scanner.scan_stocks_lightweight(
+                        stock_list=stock_list,
+                        min_score=min_score,
+                        only_buy_watch=True,
+                        max_results=10
+                    )
+                    scan_time = time.time() - start_time
+                    
+                    if results:
+                        st.success(f"✅ {len(results)} cơ hội trong {scan_time:.1f}s")
+                        
+                        # Mobile-friendly results display
+                        for i, stock in enumerate(results[:5], 1):
+                            with st.container():
+                                st.markdown(f"""
+                                <div class="mobile-card" style="margin: 0.5rem 0; padding: 1rem; border-left: 4px solid {'#28a745' if stock.recommendation == 'BUY' else '#ffc107'};">
+                                    <h4>{i}. {stock.symbol} - {stock.recommendation}</h4>
+                                    <p><strong>Điểm:</strong> {stock.overall_score:.1f}/10 | 
+                                       <strong>P/B:</strong> {stock.pb_ratio:.2f} | 
+                                       <strong>RSI:</strong> {stock.rsi:.1f}</p>
+                                    <p><small>{stock.macd_signal.title()} MACD, {stock.ma_trend} trend</small></p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                # Quick action button
+                                if st.button(f"📈 Phân tích {stock.symbol}", key=f"mobile_analyze_{stock.symbol}"):
+                                    st.info(f"🔄 Đang phân tích {stock.symbol}...")
+                                    # Store selected stock for detailed analysis
+                                    st.session_state.mobile_selected_stock = stock.symbol
+                                    st.session_state.mobile_show_analysis = True
+                        
+                        # Summary stats
+                        st.markdown("---")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            buy_count = len([r for r in results if r.recommendation == "BUY"])
+                            st.metric("🟢 BUY", buy_count)
+                        with col2:
+                            avg_score = sum(r.overall_score for r in results) / len(results)
+                            st.metric("⭐ Điểm TB", f"{avg_score:.1f}")
+                    
+                    else:
+                        st.warning("⚠️ Không tìm thấy cơ hội phù hợp")
+                        st.info("💡 Thử preset khác hoặc giảm tiêu chí")
+                
+                except Exception as e:
+                    st.error(f"❌ Lỗi: {str(e)}")
+                    if "rate limit" in str(e).lower():
+                        st.info("⏱️ API limit. Thử lại sau 1-2 phút")
+        
+        # Quick tips for mobile users
+        with st.expander("💡 Mẹo sử dụng"):
+            st.markdown("""
+            **⚡ Quét Nhanh:**
+            - Chọn preset phù hợp với mục tiêu đầu tư
+            - Kết quả hiển thị theo độ ưu tiên
+            - Chạm vào cổ phiếu để phân tích chi tiết
+            
+            **🎯 Preset giải thích:**
+            - 🔥 Top cơ hội: Cổ phiếu VN30 có tiềm năng
+            - 💎 Giá trị: Tập trung P/B thấp, định giá hấp dẫn
+            - 🚀 Momentum: Xu hướng tăng mạnh, breakout potential
+            """)
         
         st.markdown('</div>', unsafe_allow_html=True)
 

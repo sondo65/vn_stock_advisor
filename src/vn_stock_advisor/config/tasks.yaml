@@ -70,20 +70,23 @@ investment_decision:
     Dựa trên kết quả tổng hợp từ các phân tích thành phần (news_collecting, fundamental_analysis, technical_analysis), 
     đánh giá mã cổ phiếu {symbol} bằng hệ thống điểm số lượng hóa và đưa ra khuyến nghị đầu tư cụ thể.
 
-    Quy trình thực hiện:
-    1. Tóm tắt ngắn gọn kết quả phân tích từng phần: vĩ mô, cơ bản, kỹ thuật.
-    2. Chấm điểm từng yếu tố (thang điểm 0–10), kèm lý do.
-    3. Tính điểm tổng hợp (trung bình gia quyền hoặc theo logic được mô tả).
-    4. Đưa ra khuyến nghị rõ ràng: **MUA**, **GIỮ**, hoặc **BÁN**, dựa trên ngưỡng điểm như sau:
-       - **MUA**: nếu điểm trung bình >= 7.5
-       - **GIỮ**: nếu điểm trung bình từ 4.0 đến 7.4
-       - **BÁN**: nếu điểm trung bình < 4.0
-    5. Nếu chưa đạt ngưỡng **MUA** hoặc **BÁN**: đề xuất mức giá mục tiêu dựa trên phân tích kỹ thuật.
+    **BẮT BUỘC**: Sử dụng công cụ `Investment Decision Tool` với các tham số:
+    - symbol: {symbol}
+    - fundamental_analysis: Nội dung từ task fundamental_analysis
+    - technical_analysis: Nội dung từ task technical_analysis  
+    - macro_analysis: Nội dung từ task news_collecting
+
+    Công cụ sẽ tự động:
+    1. Chấm điểm từng yếu tố (thang điểm 0–10) với logic thông minh
+    2. Tính điểm tổng hợp với trọng số cân bằng (40%-40%-20%)
+    3. Áp dụng logic override để đảm bảo an toàn đầu tư
+    4. Tạo khuyến nghị nhất quán: MUA/GIỮ/BÁN với giải thích chi tiết
+    5. Đưa ra giá mục tiêu dựa trên phân tích kỹ thuật
 
     Lưu ý:
-    - **KHÔNG** được bỏ qua khuyến nghị hành động.
-    - Kết luận **phải** được xây dựng trên nền tảng điểm số và phân tích từ cả 3 yếu tố.
-    - Ưu tiên các khuyến nghị có thể kiểm chứng và tái sử dụng trong báo cáo phân tích đầu tư chuyên nghiệp.
+    - **BẮT BUỘC** phải sử dụng tool, không được tự tạo kết quả
+    - Tool đã tích hợp logic override thông minh để đảm bảo tính nhất quán
+    - Kết quả sẽ có định dạng JSON chuẩn cho hệ thống
 
   expected_output: >
     Một đoạn văn bằng tiếng Việt, có cấu trúc chuẩn như sau:

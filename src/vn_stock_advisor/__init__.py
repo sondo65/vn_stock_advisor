@@ -19,7 +19,7 @@ from .scoring import WeightedScoringSystem, ConfidenceCalculator, ValidationMetr
 from .risk_analysis import RiskCalculator, StressTesting, RiskMetrics
 from .ml import PatternRecognition, AnomalyDetection, SentimentAnalyzer
 from .technical import FibonacciCalculator, IchimokuAnalyzer, VolumeAnalyzer, DivergenceDetector
-from .scanner import StockScanner, RankingSystem
+from .scanner import LightweightStockScanner, PriorityRankingSystem
 
 __all__ = [
     'VnStockAdvisor',
@@ -36,6 +36,6 @@ __all__ = [
     'IchimokuAnalyzer',
     'VolumeAnalyzer',
     'DivergenceDetector',
-    'StockScanner',
-    'RankingSystem'
+    'LightweightStockScanner',
+    'PriorityRankingSystem'
 ]

@@ -32,7 +32,16 @@ try:
     from src.vn_stock_advisor.crew import VnStockAdvisor
     from src.vn_stock_advisor.tools.custom_tool import FundDataTool, TechDataTool
     from src.vn_stock_advisor.data_integration import CacheManager, DataValidator
-    from src.vn_stock_advisor.scanner import StockScanner, RankingSystem
+    # Import optimized scanner components
+    from src.vn_stock_advisor.scanner import (
+        LightweightStockScanner, 
+        ScreeningEngine,
+        PriorityRankingSystem,
+        TokenOptimizer,
+        quick_scan_and_rank,
+        find_opportunities,
+        get_analysis_priorities
+    )
     MODULES_AVAILABLE = True
 except ImportError as e:
     st.error(f"Error importing VN Stock Advisor modules: {e}")
@@ -150,7 +159,7 @@ class StockAnalysisApp:
             self._render_comparison()
         
         with tab4:
-            self._render_stock_scanner()
+            self._render_optimized_scanner()
         
         with tab5:
             self._render_settings()
@@ -276,9 +285,13 @@ class StockAnalysisApp:
                 status_text.text("🤖 Chạy AI multi-agent analysis...")
                 progress_bar.progress(75)
                 
-                # Run CrewAI analysis
+                # Run CrewAI analysis with inputs
                 crew = VnStockAdvisor()
-                result = crew.crew().kickoff()
+                inputs = {
+                    'symbol': symbol,
+                    'current_date': datetime.now().strftime('%Y-%m-%d')
+                }
+                result = crew.crew().kickoff(inputs=inputs)
                 
                 # Step 5: Compile results
                 status_text.text("📋 Tổng hợp kết quả...")
@@ -458,6 +471,9 @@ PHÂN TÍCH MACHINE LEARNING:
             st.text(analysis['ai_analysis'])
         
         st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Strategy and Conclusion Section
+        self._display_strategy_conclusion(analysis)
         
         # Action buttons
         col1, col2, col3, col4 = st.columns(4)
@@ -927,6 +943,167 @@ PHÂN TÍCH MACHINE LEARNING:
                     )
                 except Exception as e:
                     st.error(f"Lỗi tạo báo cáo: {e}")
+    
+    def _render_optimized_scanner(self):
+        """Render optimized stock scanner interface."""
+        from optimized_scanner_ui import render_optimized_stock_scanner, render_scanner_info_panel
+        
+        # Main scanner interface
+        render_optimized_stock_scanner()
+        
+        # Add info panel at bottom
+        st.markdown("---")
+        render_scanner_info_panel()
+    
+    def _display_strategy_conclusion(self, analysis: Dict[str, Any]):
+        """Display strategy and conclusion section."""
+        symbol = analysis['symbol']
+        
+        # Strategy section
+        st.markdown('<div class="analysis-section">', unsafe_allow_html=True)
+        st.markdown("### 🎯 Kết luận & Chiến lược")
+        
+        # Check if we have analysis results to synthesize strategy
+        if analysis.get('ai_analysis') or (analysis.get('fundamental_data') and analysis.get('technical_data')):
+            try:
+                # Import strategy synthesizer
+                from src.vn_stock_advisor.tools.strategy_synthesizer import StrategySynthesizerTool
+                strategy_synthesizer = StrategySynthesizerTool()
+                
+                # Get analysis data
+                fund_data = analysis.get('fundamental_data', '')
+                tech_data = analysis.get('technical_data', '')
+                macro_data = analysis.get('ai_analysis', '')
+                current_price = analysis.get('current_price', 0.0)
+                
+                # Create strategy using synthesizer
+                strategy_result = strategy_synthesizer._run(
+                    symbol=symbol,
+                    fundamental_analysis=fund_data,
+                    technical_analysis=tech_data,
+                    macro_analysis=macro_data,
+                    current_price=current_price
+                )
+                
+                # Display strategy in expandable section
+                with st.expander("📊 Xem chiến lược chi tiết", expanded=True):
+                    st.markdown(strategy_result)
+                
+            except Exception as e:
+                # Fallback to basic conclusion
+                self._display_basic_conclusion(analysis)
+                st.warning(f"Sử dụng tổng kết cơ bản do: {e}")
+        else:
+            # Display basic conclusion
+            self._display_basic_conclusion(analysis)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    def _display_basic_conclusion(self, analysis: Dict[str, Any]):
+        """Display basic conclusion when full strategy synthesis is not available."""
+        symbol = analysis['symbol']
+        recommendation = analysis.get('recommendation', 'GIỮ')
+        
+        # Basic conclusion
+        st.markdown("#### 📋 Tóm tắt kết luận")
+        
+        # Extract basic info
+        fund_data = analysis.get('fundamental_data', '')
+        tech_data = analysis.get('technical_data', '')
+        
+        # Simple trend analysis
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**📈 Xu hướng kỹ thuật:**")
+            if any(word in tech_data.lower() for word in ['tăng', 'upward', 'bullish']):
+                st.success("🟢 Xu hướng tăng")
+            elif any(word in tech_data.lower() for word in ['giảm', 'downward', 'bearish']):
+                st.error("🔴 Xu hướng giảm")
+            else:
+                st.warning("🟡 Xu hướng đi ngang")
+        
+        with col2:
+            st.markdown("**💰 Định giá cơ bản:**")
+            if any(word in fund_data.lower() for word in ['rẻ', 'undervalued', 'hấp dẫn']):
+                st.success("🟢 Định giá hấp dẫn")
+            elif any(word in fund_data.lower() for word in ['đắt', 'overvalued', 'cao']):
+                st.error("🔴 Định giá cao")
+            else:
+                st.info("🟡 Định giá hợp lý")
+        
+        # Basic price targets (simplified)
+        if recommendation in ['MUA', 'GIỮ', 'BUY', 'HOLD']:
+            st.markdown("#### 💰 Vùng giá tham khảo")
+            
+            # Try to extract current price from data
+            current_price = analysis.get('current_price', 0)
+            if current_price == 0:
+                # Try to extract from technical data
+                import re
+                price_patterns = [
+                    r'([0-9,]+)\s*VND',
+                    r'giá[:\s]*([0-9,]+)',
+                    r'price[:\s]*([0-9,]+)'
+                ]
+                
+                for pattern in price_patterns:
+                    match = re.search(pattern, tech_data)
+                    if match:
+                        try:
+                            current_price = float(match.group(1).replace(',', ''))
+                            break
+                        except:
+                            continue
+                
+                if current_price == 0:
+                    current_price = 25000  # Default estimate
+            
+            # Simple price calculations
+            entry_min = current_price * 0.97
+            entry_max = current_price * 1.03
+            target_1 = current_price * 1.15
+            target_2 = current_price * 1.25
+            stop_loss = current_price * 0.92
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.info(f"""
+                **🎯 Vùng mua:**  
+                {entry_min:,.0f} - {entry_max:,.0f} VND
+                """)
+            
+            with col2:
+                st.success(f"""
+                **📈 Chốt lời:**  
+                T1: {target_1:,.0f} VND (+{((target_1/current_price)-1)*100:.1f}%)  
+                T2: {target_2:,.0f} VND (+{((target_2/current_price)-1)*100:.1f}%)
+                """)
+            
+            with col3:
+                st.error(f"""
+                **⛔ Stop-loss:**  
+                Dưới {stop_loss:,.0f} VND  
+                (-{((1-stop_loss/current_price)*100):.1f}%)
+                """)
+        
+        # Risk assessment
+        st.markdown("#### ⚠️ Đánh giá rủi ro")
+        
+        risk_factors = []
+        if any(word in fund_data.lower() for word in ['cao', 'p/e']) and 'p/e' in fund_data.lower():
+            risk_factors.append("P/E cao - rủi ro định giá")
+        if any(word in tech_data.lower() for word in ['giảm', 'downward']):
+            risk_factors.append("Xu hướng kỹ thuật tiêu cực")
+        if 'volume' in tech_data.lower() and any(word in tech_data.lower() for word in ['thấp', 'low']):
+            risk_factors.append("Volume thấp - thanh khoản kém")
+        
+        if risk_factors:
+            for risk in risk_factors:
+                st.warning(f"⚠️ {risk}")
+        else:
+            st.success("✅ Rủi ro ở mức chấp nhận được")
 
 def main():
     """Main function to run the Streamlit app."""
