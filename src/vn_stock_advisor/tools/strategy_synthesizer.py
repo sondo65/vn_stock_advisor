@@ -515,10 +515,17 @@ class StrategySynthesizerTool(BaseTool):
         try:
             analysis_lower = analysis.lower()
             
-            # Trend determination
-            if any(word in analysis_lower for word in ['xu hướng tăng', 'upward', 'tăng', 'bullish']):
+            # Check for technical tool errors - assume bearish trend for failing stocks
+            if any(word in analysis_lower for word in ['error', 'failed', 'validation failed', 'don\'t exist']):
+                insights["trend"] = "downward"
+                insights["momentum"] = "bearish"
+                insights["entry_timing"] = "wait"
+                return insights
+            
+            # Trend determination (avoid generic words like 'tăng'/'giảm')
+            if any(phrase in analysis_lower for phrase in ['xu hướng tăng', 'upward', 'bullish']):
                 insights["trend"] = "upward"
-            elif any(word in analysis_lower for word in ['xu hướng giảm', 'downward', 'giảm', 'bearish']):
+            elif any(phrase in analysis_lower for phrase in ['giảm sàn', 'giảm mạnh', 'xu hướng giảm', 'downward', 'bearish']):
                 insights["trend"] = "downward"
             
             # RSI status

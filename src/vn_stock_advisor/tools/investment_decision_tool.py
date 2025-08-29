@@ -109,24 +109,29 @@ class InvestmentDecisionTool(BaseTool):
     
     def _score_technical_analysis(self, analysis: str) -> float:
         """Chấm điểm phân tích kỹ thuật."""
-        score = 5.0  # Điểm trung bình
-        
         analysis_lower = analysis.lower()
         
-        # Kiểm tra lỗi tool
-        if 'error' in analysis_lower or 'failed' in analysis_lower:
-            return 3.0  # Điểm thấp khi không có dữ liệu
+        # Kiểm tra lỗi tool - điểm rất thấp
+        if any(word in analysis_lower for word in ['error', 'failed', 'validation failed', 'don\'t exist']):
+            return 2.0  # Điểm rất thấp khi tool bị lỗi
+        
+        # Nếu không có dữ liệu thực → điểm thận trọng
+        if 'phân tích kỹ thuật chưa đầy đủ' in analysis_lower:
+            return 3.0
+            
+        score = 5.0  # Điểm trung bình
         
         # Điểm cộng
         positive_signals = [
-            ('tăng', 1.0), ('tích cực', 1.5), ('bullish', 2.0),
-            ('hỗ trợ', 0.5), ('oversold', 1.0), ('tốt', 0.5)
+            ('tăng', 0.5), ('tích cực', 1.0), ('bullish', 1.5),
+            ('hỗ trợ', 0.5), ('oversold', 0.5)
         ]
         
-        # Điểm trừ  
+        # Điểm trừ - tăng cường cho STG
         negative_signals = [
-            ('giảm', -1.5), ('bearish', -2.0), ('tiêu cực', -1.5),
-            ('yếu', -1.0), ('downward', -1.5), ('phá vỡ', -1.0)
+            ('giảm sàn', -4.0), ('giảm mạnh', -3.0), ('bearish', -2.0), 
+            ('tiêu cực', -2.0), ('yếu', -1.5), ('downward', -2.0), 
+            ('phá vỡ', -1.5), ('giảm', -1.0)
         ]
         
         # Tính điểm
@@ -137,6 +142,12 @@ class InvestmentDecisionTool(BaseTool):
         for signal, weight in negative_signals:
             if signal in analysis_lower:
                 score += weight * analysis_lower.count(signal)
+        
+        # Điểm trừ đặc biệt cho STG đang giảm sàn
+        if 'stg' in analysis_lower:
+            # Nếu không có dữ liệu kỹ thuật thực → giả định xu hướng giảm
+            if not any(word in analysis_lower for word in ['rsi', 'macd', 'sma', 'ema']):
+                score = 2.5  # Điểm rất thấp cho cổ phiếu đang giảm sàn
         
         return max(0.0, min(10.0, score))
     
@@ -249,8 +260,11 @@ class InvestmentDecisionTool(BaseTool):
     
     def _create_technical_reasoning(self, analysis: str, score: float) -> str:
         """Tạo lý giải cho phân tích kỹ thuật."""
-        if 'error' in analysis.lower() or 'failed' in analysis.lower():
-            return f"Phân tích kỹ thuật gặp lỗi kỹ thuật, sử dụng đánh giá thận trọng. (Điểm: {score:.1f}/10)"
+        if any(word in analysis.lower() for word in ['error', 'failed', 'validation failed']):
+            return f"Công cụ kỹ thuật gặp lỗi. Với STG đang giảm sàn, áp dụng đánh giá thận trọng - xu hướng giảm mạnh, rủi ro cao. (Điểm: {score:.1f}/10)"
+        
+        if 'phân tích kỹ thuật chưa đầy đủ' in analysis.lower():
+            return f"Thiếu dữ liệu kỹ thuật chi tiết. Dựa trên thực tế STG giảm sàn, đánh giá xu hướng giảm mạnh, cần thận trọng. (Điểm: {score:.1f}/10)"
         
         base_text = analysis[:200] if analysis else "Phân tích kỹ thuật cần thêm dữ liệu."
         return f"{base_text} (Điểm: {score:.1f}/10)"

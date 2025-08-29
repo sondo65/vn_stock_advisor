@@ -1,12 +1,12 @@
 {
-  "stock_ticker": "STG",
-  "full_name": "STG",
-  "industry": "Unknown",
+  "stock_ticker": "DSE",
+  "full_name": "Unknown Company",
+  "industry": "Tài chính",
   "today_date": "2025-08-29",
-  "decision": "SELL",
-  "macro_reasoning": "Stable interest rates and positive economic indicators support investor sentiment.",
-  "fund_reasoning": "High P/E ratio compared to industry average suggests overvaluation.",
-  "tech_reasoning": "Incomplete technical analysis prevents a definitive conclusion.",
+  "decision": "BÁN",
+  "macro_reasoning": "Môi trường vĩ mô ổn định hỗ trợ tâm lý đầu tư. Chính sách tiền tệ thuận lợi cho dòng tiền vào cổ phiếu. Các chỉ số kinh tế chính duy trì xu hướng tích cực.  NHNN duy trì lãi suất ổn định hỗ trợ tăng trưởng. VN-Index dao động quanh mức hỗ trợ quan trọng (Điểm: 10.0/10)",
+  "fund_reasoning": "Mặc dù tỷ lệ ROE (0.049) và ROA (0.02) cho thấy khả năng sinh lời của DSE ở mức khá khiêm tốn, biên lợi nhuận gộp (0.514) lại tương đối tốt. Tuy nhiên,  tăng trưởng doanh thu (-10%) và lợi nhuận (-20%) trong 4 quý gần đây cho thấy hiệu quả hoạt động đang giảm sút đáng kể. Hệ số nợ trên vốn chủ sở hữu (D/E = 1.8) cho thấy DSE có mức nợ khá cao, tiềm ẩn rủi ro tài chính. Tỷ lệ EV/EBITDA (59.4) cũng rất cao, phản ánh định giá cao và rủi ro. Cổ phiếu DSE hiện đang được định giá cao so với mặt bằng chung của ngành Tài chính.  P/E của DSE là 52.8, trong khi P/E trung bình của ngành Tài chính ngân hàng (ngành gần nhất có dữ liệu) chỉ là 7.93.  Tương tự, P/B của DSE (2.6) cũng cao hơn đáng kể so với P/B trung bình của ngành (1.32). Điều này cho thấy thị trường đang định giá tương đối cao cho DSE, tiềm ẩn rủi ro nếu kết quả kinh doanh không đáp ứng được kỳ vọng. (Điểm: 0.0/10)",
+  "tech_reasoning": "Thiếu dữ liệu kỹ thuật chi tiết. Dựa trên thực tế STG giảm sàn, đánh giá xu hướng giảm mạnh, cần thận trọng. (Điểm: 3.0/10)",
   "buy_price": 40000.0,
   "sell_price": 52500.0
 }

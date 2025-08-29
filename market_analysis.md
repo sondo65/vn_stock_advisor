@@ -41,16 +41,16 @@
 
 *Phân tích được thực hiện vào 2025-08-29 và sẽ được cache trong 24 giờ*
 
-## 🎯 TÁC ĐỘNG DỰ KIẾN ĐẾN CÁC NHÓM NGÀNH VÀ CỔ PHIẾU
+## 🎯 TÁC ĐỘNG DỰ KIẾN
 
-**Nhóm ngành:**
+🎯 **Tác động đến các nhóm ngành:**
 
-• **Ngân hàng:** Tăng trưởng ổn định, hưởng lợi từ chính sách tiền tệ
-• **Bất động sản:** Cẩn trọng, chờ đợi tín hiệu tích cực từ thị trường
-• **Công nghệ:** Tiềm năng tăng trưởng cao, thu hút dòng vốn đầu tư
+• **Ngành ngân hàng:** Tiếp tục hưởng lợi từ chính sách tiền tệ
+• **Ngành bất động sản:** Cần theo dõi chặt chẽ chính sách điều tiết
+• **Ngành công nghệ:** Tiềm năng tăng trưởng cao nhưng rủi ro cũng lớn
 
-**Cổ phiếu:**
+🎯 **Tác động đến cổ phiếu:**
 
-*Cần phân tích chi tiết từng cổ phiếu dựa trên báo cáo tài chính và các yếu tố khác*
+*Cần phân tích cụ thể từng cổ phiếu dựa trên báo cáo tài chính và các yếu tố khác*
 
 **Lưu ý:** Phân tích này chỉ mang tính chất tham khảo và không phải là lời khuyên đầu tư.

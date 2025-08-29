@@ -18,6 +18,12 @@ import io
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import time
+import os
+from dotenv import load_dotenv
+import requests
+
+# Load environment variables
+load_dotenv()
 
 # Streamlit page config
 st.set_page_config(
@@ -128,6 +134,12 @@ class StockAnalysisApp:
         # Initialize components
         self._initialize_components()
     
+        # Initialize ChatGPT settings in session
+        if 'openai_api_key' not in st.session_state:
+            st.session_state.openai_api_key = os.environ.get('OPENAI_API_KEY', '')
+        if 'use_chatgpt_summary' not in st.session_state:
+            st.session_state.use_chatgpt_summary = False
+
     def _initialize_components(self):
         """Initialize data components."""
         try:
@@ -670,6 +682,21 @@ PHÂN TÍCH MACHINE LEARNING:
         if st.button("🗑️ Xóa dữ liệu phân tích", type="secondary"):
             st.session_state.analysis_history = []
             st.success("Đã xóa lịch sử phân tích!")
+
+        st.markdown("### 🤖 Tích hợp ChatGPT cho phần Kết luận & Chiến lược")
+        col_api1, col_api2 = st.columns([2, 1])
+        with col_api1:
+            st.session_state.openai_api_key = st.text_input(
+                "OpenAI API Key",
+                value=st.session_state.get('openai_api_key', ''),
+                type="password",
+                help="Dùng để tổng kết phần KẾT LUẬN & CHIẾN LƯỢC qua ChatGPT"
+            )
+        with col_api2:
+            st.session_state.use_chatgpt_summary = st.checkbox(
+                "Dùng ChatGPT tổng kết",
+                value=st.session_state.get('use_chatgpt_summary', False)
+            )
     
     def _export_pdf(self, analysis: Dict[str, Any]):
         """Export analysis to PDF."""
@@ -986,8 +1013,23 @@ PHÂN TÍCH MACHINE LEARNING:
                 )
                 
                 # Display strategy in expandable section
-                with st.expander("📊 Xem chiến lược chi tiết", expanded=True):
+                with st.expander("📊 Xem chiến lược chi tiết (Hệ thống)", expanded=True):
                     st.markdown(strategy_result)
+
+                # Optional: Summarize with ChatGPT if enabled
+                if st.session_state.get('use_chatgpt_summary') and st.session_state.get('openai_api_key'):
+                    try:
+                        chatgpt_summary = self._summarize_with_chatgpt(
+                            symbol=symbol,
+                            fundamental_text=fund_data,
+                            technical_text=tech_data,
+                            system_strategy_md=strategy_result,
+                            api_key=st.session_state.openai_api_key
+                        )
+                        with st.expander("🧠 Tổng kết ChatGPT (KẾT LUẬN & CHIẾN LƯỢC)", expanded=True):
+                            st.markdown(chatgpt_summary)
+                    except Exception as e:
+                        st.warning(f"Không thể tổng kết bằng ChatGPT: {e}")
                 
             except Exception as e:
                 # Fallback to basic conclusion
@@ -999,6 +1041,56 @@ PHÂN TÍCH MACHINE LEARNING:
         
         st.markdown('</div>', unsafe_allow_html=True)
     
+    def _summarize_with_chatgpt(self, symbol: str, fundamental_text: str, technical_text: str, system_strategy_md: str, api_key: str) -> str:
+        """Use OpenAI Chat Completions API to summarize conclusion & strategy in Vietnamese.
+
+        Falls back to HTTP requests to avoid hard dependency on the OpenAI SDK.
+        """
+        # Compose prompt
+        prompt = (
+            f"Bạn là chuyên gia chứng khoán Việt Nam. Hãy tổng kết ngắn gọn, rõ ràng, theo cấu trúc dưới đây cho mã {symbol}:\n\n"
+            "1) Phân tích cơ bản: dựng bảng chỉ số (cột: Chỉ số | Giá trị | Nhận xét), tóm tắt điểm mạnh/yếu.\n"
+            "2) Phân tích kỹ thuật: xu hướng (SMA/EMA), momentum (RSI, MACD), Bollinger/Khối lượng, Hỗ trợ/Kháng cự.\n"
+            "3) Kết luận tổng thể: gạch đầu dòng, điều kiện xác nhận, cảnh báo rủi ro.\n"
+            "4) Chiến lược: vùng mua, chốt lời (T1/T2/T3 nếu hợp lý), stop-loss, tỷ trọng khuyến nghị.\n\n"
+            "Yêu cầu: Viết tiếng Việt, súc tích, có emoji nhẹ nhàng. Không bịa số liệu nếu không có, hãy dùng nhận xét định tính khi thiếu dữ liệu.\n"
+            "Nếu có mâu thuẫn giữa các nguồn, hãy ghi chú ngắn gọn.\n\n"
+            "Dưới đây là dữ liệu đầu vào: \n\n"
+            f"[PHÂN TÍCH CƠ BẢN]\n{fundamental_text}\n\n"
+            f"[PHÂN TÍCH KỸ THUẬT]\n{technical_text}\n\n"
+            f"[CHIẾN LƯỢC HỆ THỐNG]\n{system_strategy_md}\n\n"
+            "Hãy xuất ra ở định dạng Markdown đẹp, có tiêu đề phụ và danh sách rõ ràng."
+        )
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        # Prefer GPT-4o-mini for cost/speed; allow override via env
+        model = os.environ.get('OPENAI_CHAT_MODEL', 'gpt-4o-mini')
+
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "Bạn là chuyên gia phân tích chứng khoán Việt Nam, trả lời súc tích."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 1200
+        }
+
+        url = os.environ.get('OPENAI_API_BASE', 'https://api.openai.com') + '/v1/chat/completions'
+        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        if resp.status_code != 200:
+            raise RuntimeError(f"OpenAI API lỗi {resp.status_code}: {resp.text[:200]}")
+
+        data = resp.json()
+        content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+        if not content:
+            raise RuntimeError("Không nhận được nội dung từ OpenAI")
+        return content
+
     def _display_basic_conclusion(self, analysis: Dict[str, Any]):
         """Display basic conclusion when full strategy synthesis is not available."""
         symbol = analysis['symbol']
