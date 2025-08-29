@@ -20,7 +20,7 @@ Sử dụng hệ thống 4 AI Agents để thực hiện những công việc sa
 - 📈 Tự động thu thập dữ liệu giá, khối lượng từ VCI hoặc TCBS, tính toán và phân tích kỹ thuật (SMA, EMA, RSI, MACD, OBV...)
 - 💡 Tổng hợp dữ liệu và đề xuất quyết định đầu tư (Mua/Bán/Giữ)
 
-### Tính năng nâng cao (v0.7.0)
+### Tính năng nâng cao (v0.8.0)
 - 🤖 **Machine Learning Analysis**: Pattern Recognition, Anomaly Detection
 - 📊 **Advanced Technical Analysis**: Fibonacci, Ichimoku Cloud, Volume Profile, Divergence Detection  
 - 💭 **Sentiment Analysis**: Phân tích tâm lý thị trường từ tin tức và social media
@@ -30,6 +30,18 @@ Sử dụng hệ thống 4 AI Agents để thực hiện những công việc sa
 - 📡 **Real-time Data Collection**: Thu thập dữ liệu real-time với caching và validation
 - 📚 **Enhanced Knowledge Base**: Cơ sở dữ liệu ngành mở rộng với industry benchmarks
 - ✅ **Data Quality Assurance**: Hệ thống validation và đánh giá chất lượng dữ liệu tự động
+
+### Tính năng User Experience & API (v0.8.0)
+- 🌐 **Streamlit Web Interface**: Giao diện web thân thiện với người dùng
+- 📱 **Mobile-Responsive Design**: Tối ưu cho thiết bị di động và tablet
+- 🔌 **REST API**: API endpoints đầy đủ cho integration với hệ thống khác
+- 👤 **User Authentication**: Hệ thống đăng nhập, đăng ký và quản lý người dùng
+- 💼 **Portfolio Management**: Quản lý danh mục đầu tư cá nhân
+- 📈 **Interactive Dashboard**: Dashboard tương tác với biểu đồ nâng cao
+- 📤 **Export Capabilities**: Xuất báo cáo PDF, Excel, JSON
+- 🎨 **Advanced Visualization**: Biểu đồ tương tác với Plotly
+- 📊 **Sector Analysis**: Phân tích theo ngành chi tiết
+- 🔍 **Stock Comparison**: So sánh multiple cổ phiếu
 
 ### Webdemo
 - Update sau
@@ -62,7 +74,19 @@ GEMINI_REASONING_MODEL=gemini/gemini-2.5-flash-preview-04-17
 SERPER_API_KEY=your_serper_api_key
 ```
 
-### Sử dụng
+## 🎯 Cách sử dụng
+
+### 1. Chạy Web Interface
+```bash
+streamlit run streamlit_app.py
+```
+
+### 2. Chạy API Server
+```bash
+cd api && uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 3. Chạy phân tích truyền thống (Command Line)
 ```bash
 # Vào main.py, thay biến symbol bằng mã cổ phiếu muốn phân tích
 # Mặc định hiện đang để là "HPG"

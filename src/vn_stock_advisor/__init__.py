@@ -10,7 +10,7 @@ This package provides comprehensive stock analysis including:
 - Advanced scoring and confidence calculation
 """
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 __author__ = "VN Stock Advisor Team"
 
 # Import main components
@@ -19,6 +19,7 @@ from .scoring import WeightedScoringSystem, ConfidenceCalculator, ValidationMetr
 from .risk_analysis import RiskCalculator, StressTesting, RiskMetrics
 from .ml import PatternRecognition, AnomalyDetection, SentimentAnalyzer
 from .technical import FibonacciCalculator, IchimokuAnalyzer, VolumeAnalyzer, DivergenceDetector
+from .scanner import StockScanner, RankingSystem
 
 __all__ = [
     'VnStockAdvisor',
@@ -34,5 +35,7 @@ __all__ = [
     'FibonacciCalculator',
     'IchimokuAnalyzer',
     'VolumeAnalyzer',
-    'DivergenceDetector'
+    'DivergenceDetector',
+    'StockScanner',
+    'RankingSystem'
 ]
