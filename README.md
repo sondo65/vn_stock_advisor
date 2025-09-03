@@ -28,8 +28,14 @@ Sử dụng hệ thống 4 AI Agents để thực hiện những công việc sa
 - 🎯 **Risk Analysis**: Comprehensive risk assessment và stress testing
 - 🔗 **Multi-Source Data Integration**: Tích hợp dữ liệu từ nhiều nguồn với conflict resolution
 - 📡 **Real-time Data Collection**: Thu thập dữ liệu real-time với caching và validation
-- 📚 **Enhanced Knowledge Base**: Cơ sở dữ liệu ngành mở rộng với industry benchmarks
-- ✅ **Data Quality Assurance**: Hệ thống validation và đánh giá chất lượng dữ liệu tự động
+
+### Tính năng mới (v0.9.0) - Industry Stock Advisor
+- 🏭 **Industry-Based Stock Suggestions**: Gợi ý cổ phiếu tiềm năng theo từng ngành cụ thể
+- 📈 **Industry Analysis & Comparison**: Phân tích và so sánh hiệu suất giữa các ngành
+- 🎯 **Smart Industry Scoring**: Hệ thống chấm điểm thông minh dựa trên benchmark ngành
+- 🔍 **Top Investment Opportunities**: Tìm kiếm top cơ hội đầu tư theo ngành
+- 📊 **Comprehensive Industry Dashboard**: Giao diện Streamlit hoàn chỉnh cho phân tích ngành
+- ⚖️ **Industry Benchmark Integration**: Tích hợp benchmark P/E, P/B cho 40+ ngành
 
 ### Tính năng User Experience & API (v0.8.0)
 - 🌐 **Streamlit Web Interface**: Giao diện web thân thiện với người dùng
@@ -93,6 +99,18 @@ cd api && uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 # Sử dụng lệnh sau để chạy chương trình
 crewai run
+```
+
+### 4. Chạy Industry Stock Advisor (Gợi ý cổ phiếu theo ngành)
+```bash
+# Giao diện Streamlit chính (đã tích hợp Industry Stock Advisor)
+streamlit run streamlit_app.py
+
+# Giao diện riêng cho Industry Stock Advisor
+streamlit run industry_stock_advisor_ui.py
+
+# Demo script
+python demo_industry_advisor.py
 ```
 ### Yêu cầu
 - Python >= 3.10, < 3.13

@@ -51,7 +51,94 @@ from .priority_ranking import (
     get_priority_analysis_queue
 )
 
+from .industry_suggester import (
+    IndustryStockSuggester,
+    IndustryStockSuggestion,
+    IndustryBenchmark,
+    IndustryType
+)
+
+from .industry_analyzer import (
+    IndustryAnalyzer,
+    IndustryAnalysis,
+    IndustryTrend
+)
+
+from .industry_stock_advisor import (
+    IndustryStockAdvisor,
+    IndustryRecommendation
+)
+
 # Convenience functions for quick usage
+
+def suggest_industry_stocks(industry: str, max_stocks: int = 10, min_score: float = 7.0) -> list:
+    """
+    Gợi ý cổ phiếu tiềm năng cho một ngành cụ thể.
+    
+    Args:
+        industry: Tên ngành
+        max_stocks: Số lượng cổ phiếu tối đa
+        min_score: Điểm tối thiểu
+        
+    Returns:
+        Danh sách gợi ý cổ phiếu
+    """
+    advisor = IndustryStockAdvisor()
+    recommendation = advisor.get_industry_recommendation(
+        industry=industry,
+        max_stocks=max_stocks,
+        min_score=min_score,
+        include_analysis=True
+    )
+    
+    if recommendation:
+        return recommendation.stock_suggestions
+    return []
+
+def get_top_industry_opportunities(max_industries: int = 5, max_stocks_per_industry: int = 5) -> list:
+    """
+    Lấy top cơ hội đầu tư theo ngành.
+    
+    Args:
+        max_industries: Số ngành tối đa
+        max_stocks_per_industry: Số cổ phiếu tối đa mỗi ngành
+        
+    Returns:
+        Danh sách top cơ hội đầu tư
+    """
+    advisor = IndustryStockAdvisor()
+    return advisor.get_top_industry_opportunities(
+        max_industries=max_industries,
+        max_stocks_per_industry=max_stocks_per_industry
+    )
+
+def compare_industries(industries: list, max_stocks_per_industry: int = 5) -> list:
+    """
+    So sánh nhiều ngành và đưa ra khuyến nghị.
+    
+    Args:
+        industries: Danh sách ngành cần so sánh
+        max_stocks_per_industry: Số cổ phiếu tối đa mỗi ngành
+        
+    Returns:
+        Danh sách khuyến nghị được sắp xếp theo tiềm năng
+    """
+    advisor = IndustryStockAdvisor()
+    return advisor.compare_industries(
+        industries=industries,
+        max_stocks_per_industry=max_stocks_per_industry
+    )
+
+def get_available_industries() -> list:
+    """
+    Lấy danh sách các ngành có sẵn.
+    
+    Returns:
+        Danh sách tên ngành
+    """
+    advisor = IndustryStockAdvisor()
+    return advisor.get_available_industries()
+
 def quick_scan_and_rank(symbols: list = None, min_score: float = 6.0) -> dict:
     """
     Scan nhanh và xếp hạng cổ phiếu.

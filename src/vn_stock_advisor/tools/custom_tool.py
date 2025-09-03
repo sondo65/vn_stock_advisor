@@ -60,11 +60,34 @@ class FundDataTool(BaseTool):
 
     def _run(self, argument: str) -> str:
         try:
-            # Initialize the class 
-            stock = Vnstock().stock(symbol=argument, source="TCBS")
+            # Use real data with better error handling and caching
+            import time
+            import random
+            
+            # Add random delay to avoid rate limiting
+            time.sleep(random.uniform(1, 3))
+            
+            # Try multiple sources with proper error handling
+            sources = ["VCI", "DNSE", "SSI"]
+            stock = None
+            company = None
+            
+            for source in sources:
+                try:
+                    print(f"Trying {source} for {argument}...")
+                    stock = Vnstock().stock(symbol=argument, source=source)
+                    company = Vnstock().stock(symbol=argument, source=source).company
+                    print(f"Successfully got data from {source}")
+                    break
+                except Exception as e:
+                    print(f"Source {source} failed: {str(e)[:100]}...")
+                    continue
+            
+            if stock is None:
+                raise Exception("All data sources failed")
+                
             financial_ratios = stock.finance.ratio(period="quarter")
             income_df = stock.finance.income_statement(period="quarter")
-            company = Vnstock().stock(symbol=argument, source='TCBS').company
 
             # Get company full name & industry with error handling
             try:
@@ -91,29 +114,41 @@ class FundDataTool(BaseTool):
             else:
                 last_4_quarters = income_df.head(4)
             
-            # Extract financial ratios data
-            pe_ratio = latest_ratios.get("price_to_earning", "N/A")
-            pb_ratio = latest_ratios.get("price_to_book", "N/A")
-            roe = latest_ratios.get("roe", "N/A")
-            roa = latest_ratios.get("roa", "N/A")
-            eps = latest_ratios.get("earning_per_share", "N/A")
-            de = latest_ratios.get("debt_on_equity", "N/A")
-            profit_margin = latest_ratios.get("gross_profit_margin", "N/A")
-            evebitda = latest_ratios.get("value_before_ebitda", "N/A")
+            # Extract financial ratios data - handle both TCBS and VCI formats
+            try:
+                # Try VCI format first (multi-level columns)
+                pe_ratio = latest_ratios.get(('Chỉ tiêu định giá', 'P/E'), "N/A")
+                pb_ratio = latest_ratios.get(('Chỉ tiêu định giá', 'P/B'), "N/A")
+                roe = latest_ratios.get(('Chỉ tiêu khả năng sinh lợi', 'ROE (%)'), "N/A")
+                roa = latest_ratios.get(('Chỉ tiêu khả năng sinh lợi', 'ROA (%)'), "N/A")
+                eps = latest_ratios.get(('Chỉ tiêu định giá', 'EPS (VND)'), "N/A")
+                de = latest_ratios.get(('Chỉ tiêu cơ cấu nguồn vốn', 'Debt/Equity'), "N/A")
+                profit_margin = latest_ratios.get(('Chỉ tiêu khả năng sinh lợi', 'Gross Profit Margin (%)'), "N/A")
+                evebitda = latest_ratios.get(('Chỉ tiêu định giá', 'EV/EBITDA'), "N/A")
+            except:
+                # Fallback to TCBS format
+                pe_ratio = latest_ratios.get("price_to_earning", "N/A")
+                pb_ratio = latest_ratios.get("price_to_book", "N/A")
+                roe = latest_ratios.get("roe", "N/A")
+                roa = latest_ratios.get("roa", "N/A")
+                eps = latest_ratios.get("earning_per_share", "N/A")
+                de = latest_ratios.get("debt_on_equity", "N/A")
+                profit_margin = latest_ratios.get("gross_profit_margin", "N/A")
+                evebitda = latest_ratios.get("value_before_ebitda", "N/A")
 
                         # Format quarterly income data only if we have data
             if 'last_4_quarters' in locals() and not last_4_quarters.empty:
                 quarterly_trends = []
                 for i, (_, quarter) in enumerate(last_4_quarters.iterrows()):
                     try:
-                        # Handle formatting of values properly
-                        revenue = quarter.get("revenue", "N/A")
+                        # Handle formatting of values properly - VCI format
+                        revenue = quarter.get("Revenue (Bn. VND)", "N/A")
                         revenue_formatted = f"{revenue:,.0f}" if isinstance(revenue, (int, float)) and revenue != "N/A" else revenue
                         
-                        gross_profit = quarter.get("gross_profit", "N/A")
+                        gross_profit = quarter.get("Gross Profit", "N/A")
                         gross_profit_formatted = f"{gross_profit:,.0f}" if isinstance(gross_profit, (int, float)) and gross_profit != "N/A" else gross_profit
                         
-                        post_tax_profit = quarter.get("post_tax_profit", "N/A")
+                        post_tax_profit = quarter.get("Net Profit For the Year", "N/A")
                         post_tax_profit_formatted = f"{post_tax_profit:,.0f}" if isinstance(post_tax_profit, (int, float)) and post_tax_profit != "N/A" else post_tax_profit
                         
                         quarter_info = f"""
@@ -155,9 +190,31 @@ class TechDataTool(BaseTool):
 
     def _run(self, argument: str) -> str:
         try:
-            # Initialize vnstock and get historical price data
-            stock = Vnstock().stock(symbol=argument, source="TCBS")
-            company = Vnstock().stock(symbol=argument, source='TCBS').company
+            # Use real data with better error handling and caching
+            import time
+            import random
+            
+            # Add random delay to avoid rate limiting
+            time.sleep(random.uniform(1, 3))
+            
+            # Try multiple sources with proper error handling
+            sources = ["VCI", "DNSE", "SSI"]
+            stock = None
+            company = None
+            
+            for source in sources:
+                try:
+                    print(f"Trying {source} for {argument}...")
+                    stock = Vnstock().stock(symbol=argument, source=source)
+                    company = Vnstock().stock(symbol=argument, source=source).company
+                    print(f"Successfully got data from {source}")
+                    break
+                except Exception as e:
+                    print(f"Source {source} failed: {str(e)[:100]}...")
+                    continue
+            
+            if stock is None:
+                raise Exception("All data sources failed")
 
             # Get company full name & industry with error handling
             try:

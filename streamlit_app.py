@@ -46,7 +46,13 @@ try:
         TokenOptimizer,
         quick_scan_and_rank,
         find_opportunities,
-        get_analysis_priorities
+        get_analysis_priorities,
+        # Industry Stock Advisor
+        IndustryStockAdvisor,
+        suggest_industry_stocks,
+        get_top_industry_opportunities,
+        compare_industries,
+        get_available_industries
     )
     MODULES_AVAILABLE = True
 except ImportError as e:
@@ -159,7 +165,7 @@ class StockAnalysisApp:
         self._render_sidebar()
         
         # Main content
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 Phân tích cổ phiếu", "📊 Dashboard", "📈 So sánh", "🔍 Quét cổ phiếu", "⚙️ Cài đặt"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🔍 Phân tích cổ phiếu", "📊 Dashboard", "📈 So sánh", "🔍 Quét cổ phiếu", "🏭 Gợi ý theo ngành", "⚙️ Cài đặt"])
         
         with tab1:
             self._render_stock_analysis()
@@ -174,6 +180,9 @@ class StockAnalysisApp:
             self._render_optimized_scanner()
         
         with tab5:
+            self._render_industry_advisor()
+        
+        with tab6:
             self._render_settings()
     
     def _render_sidebar(self):
@@ -637,6 +646,397 @@ PHÂN TÍCH MACHINE LEARNING:
         )
         
         st.plotly_chart(fig, use_container_width=True)
+    
+    def _render_industry_advisor(self):
+        """Render Industry Stock Advisor interface."""
+        st.markdown("## 🏭 Gợi ý cổ phiếu theo ngành")
+        st.markdown("Phân tích và gợi ý cổ phiếu tiềm năng dựa trên benchmark ngành")
+        
+        # Industry advisor sub-tabs
+        sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs([
+            "🔍 Gợi ý theo ngành", 
+            "🏆 Top cơ hội", 
+            "⚖️ So sánh ngành", 
+            "📋 Danh sách ngành"
+        ])
+        
+        with sub_tab1:
+            self._render_industry_suggestions()
+        
+        with sub_tab2:
+            self._render_top_opportunities()
+        
+        with sub_tab3:
+            self._render_industry_comparison()
+        
+        with sub_tab4:
+            self._render_industry_list()
+    
+    def _render_industry_suggestions(self):
+        """Render industry stock suggestions."""
+        st.markdown("### 🔍 Gợi ý cổ phiếu theo ngành")
+        
+        # Get available industries
+        try:
+            available_industries = get_available_industries()
+        except Exception as e:
+            st.error(f"❌ Không thể lấy danh sách ngành: {e}")
+            return
+        
+        # Industry selection
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            selected_industry = st.selectbox(
+                "Chọn ngành:",
+                available_industries,
+                help="Chọn ngành để xem gợi ý cổ phiếu"
+            )
+        
+        with col2:
+            max_stocks = st.slider("Số cổ phiếu tối đa", 1, 3, 2, key="industry_max_stocks")
+            min_score = st.slider("Điểm tối thiểu", 1.0, 9.0, 2.0, 0.1, key="industry_min_score")
+        
+        # Data source info
+        st.info("🔄 **Nguồn dữ liệu**: Hệ thống tự động sử dụng VCI, DNSE, SSI (delay 15s/request)")
+        
+        if st.button("🔍 Phân tích ngành", type="primary"):
+            self._analyze_industry(selected_industry, max_stocks, min_score)
+    
+    def _analyze_industry(self, industry: str, max_stocks: int, min_score: float):
+        """Analyze industry and display results."""
+        with st.spinner(f"🔄 Đang phân tích ngành {industry}..."):
+            try:
+                advisor = IndustryStockAdvisor()
+                recommendation = advisor.get_industry_recommendation(
+                    industry=industry,
+                    max_stocks=max_stocks,
+                    min_score=min_score,
+                    include_analysis=True
+                )
+                
+                if not recommendation:
+                    st.warning(f"⚠️ Không tìm thấy gợi ý nào cho ngành {industry}")
+                    return
+                
+                # Display results
+                self._display_industry_recommendation(recommendation)
+                
+            except Exception as e:
+                st.error(f"❌ Lỗi phân tích ngành: {e}")
+    
+    def _display_industry_recommendation(self, recommendation):
+        """Display industry recommendation results."""
+        # Industry overview
+        st.markdown("### 📊 Tổng quan ngành")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "Điểm tổng thể",
+                f"{recommendation.industry_analysis.overall_score:.1f}/10",
+                delta=f"{recommendation.industry_analysis.overall_score - 7.0:.1f}"
+            )
+        
+        with col2:
+            st.metric(
+                "Xu hướng",
+                recommendation.industry_analysis.trend.value.upper(),
+                delta=None
+            )
+        
+        with col3:
+            st.metric(
+                "Khuyến nghị",
+                recommendation.industry_analysis.recommendation,
+                delta=None
+            )
+        
+        with col4:
+            st.metric(
+                "Độ tin cậy",
+                f"{recommendation.confidence:.1%}",
+                delta=None
+            )
+        
+        # Summary
+        st.markdown("### 📝 Tóm tắt")
+        st.info(recommendation.summary)
+        
+        # Key insights
+        st.markdown("### 💡 Insights chính")
+        for insight in recommendation.key_insights:
+            st.markdown(f"• {insight}")
+        
+        # Risk factors
+        st.markdown("### ⚠️ Rủi ro")
+        for risk in recommendation.risk_factors:
+            st.markdown(f"• {risk}")
+        
+        # Investment strategy
+        st.markdown("### 🎯 Chiến lược đầu tư")
+        st.success(recommendation.investment_strategy)
+        
+        # Stock suggestions
+        st.markdown("### 📈 Gợi ý cổ phiếu")
+        
+        if recommendation.stock_suggestions:
+            # Create DataFrame for display
+            stocks_data = []
+            for stock in recommendation.stock_suggestions:
+                stocks_data.append({
+                    "Mã": stock.symbol,
+                    "Tên công ty": stock.company_name,
+                    "Điểm tổng": f"{stock.total_score:.1f}",
+                    "Điểm giá trị": f"{stock.value_score:.1f}",
+                    "Điểm momentum": f"{stock.momentum_score:.1f}",
+                    "Điểm chất lượng": f"{stock.quality_score:.1f}",
+                    "Khuyến nghị": stock.recommendation,
+                    "Độ tin cậy": f"{stock.confidence:.1%}",
+                    "Rủi ro": stock.risk_level,
+                    "Giá mục tiêu": f"{stock.target_price:,.0f}" if stock.target_price else "N/A"
+                })
+            
+            df = pd.DataFrame(stocks_data)
+            
+            # Display table with styling
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Charts
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Score distribution
+                fig_scores = px.bar(
+                    df,
+                    x="Mã",
+                    y=["Điểm giá trị", "Điểm momentum", "Điểm chất lượng"],
+                    title="Phân bố điểm số",
+                    barmode="group"
+                )
+                st.plotly_chart(fig_scores, use_container_width=True)
+            
+            with col2:
+                # Recommendation distribution
+                rec_counts = df["Khuyến nghị"].value_counts()
+                fig_rec = px.pie(
+                    values=rec_counts.values,
+                    names=rec_counts.index,
+                    title="Phân bố khuyến nghị"
+                )
+                st.plotly_chart(fig_rec, use_container_width=True)
+        else:
+            st.warning("⚠️ Không có gợi ý cổ phiếu nào đạt tiêu chí")
+    
+    def _render_top_opportunities(self):
+        """Render top investment opportunities."""
+        st.markdown("### 🏆 Top cơ hội đầu tư theo ngành")
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            max_industries = st.slider("Số ngành tối đa", 1, 3, 2, key="top_opportunities_max_industries")
+        
+        with col2:
+            max_stocks_per_industry = st.slider("Số cổ phiếu mỗi ngành", 1, 3, 2, key="top_opportunities_max_stocks")
+        
+        # Data source info
+        st.info("🔄 **Nguồn dữ liệu**: Hệ thống tự động sử dụng VCI, DNSE, SSI (delay 15s/request)")
+        
+        if st.button("🔍 Tìm cơ hội", type="primary"):
+            self._get_top_opportunities_analysis(max_industries, max_stocks_per_industry)
+    
+    def _get_top_opportunities_analysis(self, max_industries: int, max_stocks_per_industry: int):
+        """Get and display top opportunities."""
+        with st.spinner("🔄 Đang tìm kiếm top cơ hội đầu tư..."):
+            try:
+                opportunities = get_top_industry_opportunities(
+                    max_industries=max_industries,
+                    max_stocks_per_industry=max_stocks_per_industry
+                )
+                
+                if not opportunities:
+                    st.warning("⚠️ Không tìm thấy cơ hội đầu tư nào")
+                    return
+                
+                # Display opportunities
+                for i, opportunity in enumerate(opportunities, 1):
+                    with st.container():
+                        st.markdown(f"### 🏅 #{i} - {opportunity.industry}")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.metric("Điểm ngành", f"{opportunity.industry_analysis.overall_score:.1f}/10")
+                        
+                        with col2:
+                            st.metric("Khuyến nghị", opportunity.industry_analysis.recommendation)
+                        
+                        with col3:
+                            st.metric("Số cổ phiếu", len(opportunity.stock_suggestions))
+                        
+                        # Top picks
+                        if opportunity.stock_suggestions:
+                            top_picks = opportunity.stock_suggestions[:3]
+                            picks_text = " | ".join([f"{pick.symbol} ({pick.total_score:.1f})" for pick in top_picks])
+                            st.markdown(f"**Top picks:** {picks_text}")
+                        
+                        st.markdown(f"**Tóm tắt:** {opportunity.summary}")
+                        
+                        st.divider()
+                
+            except Exception as e:
+                st.error(f"❌ Lỗi tìm kiếm cơ hội: {e}")
+    
+    def _render_industry_comparison(self):
+        """Render industry comparison."""
+        st.markdown("### ⚖️ So sánh ngành")
+        
+        # Get available industries
+        try:
+            available_industries = get_available_industries()
+        except Exception as e:
+            st.error(f"❌ Không thể lấy danh sách ngành: {e}")
+            return
+        
+        # Industry selection
+        selected_industries = st.multiselect(
+            "Chọn các ngành để so sánh:",
+            available_industries,
+            default=available_industries[:3] if len(available_industries) >= 3 else available_industries,
+            help="Chọn ít nhất 2 ngành để so sánh"
+        )
+        
+        if len(selected_industries) < 2:
+            st.warning("⚠️ Vui lòng chọn ít nhất 2 ngành để so sánh")
+            return
+        
+        max_stocks_per_industry = st.slider("Số cổ phiếu mỗi ngành", 1, 3, 2, key="comparison_max_stocks")
+        
+        # Data source info
+        st.info("🔄 **Nguồn dữ liệu**: Hệ thống tự động sử dụng VCI, DNSE, SSI (delay 15s/request)")
+        
+        if st.button("⚖️ So sánh", type="primary"):
+            self._compare_industries_analysis(selected_industries, max_stocks_per_industry)
+    
+    def _compare_industries_analysis(self, industries: list, max_stocks_per_industry: int):
+        """Compare industries and display results."""
+        with st.spinner("🔄 Đang so sánh các ngành..."):
+            try:
+                comparisons = compare_industries(
+                    industries=industries,
+                    max_stocks_per_industry=max_stocks_per_industry
+                )
+                
+                if not comparisons:
+                    st.warning("⚠️ Không thể so sánh các ngành")
+                    return
+                
+                # Create comparison chart
+                comparison_data = []
+                for comp in comparisons:
+                    comparison_data.append({
+                        "Ngành": comp.industry,
+                        "Điểm tổng thể": comp.industry_analysis.overall_score,
+                        "Điểm momentum": comp.industry_analysis.momentum_score,
+                        "Điểm giá trị": comp.industry_analysis.value_score,
+                        "Điểm chất lượng": comp.industry_analysis.quality_score,
+                        "Khuyến nghị": comp.industry_analysis.recommendation,
+                        "Số cổ phiếu": len(comp.stock_suggestions)
+                    })
+                
+                df_comparison = pd.DataFrame(comparison_data)
+                
+                # Display comparison table
+                st.markdown("### 📊 Bảng so sánh")
+                st.dataframe(df_comparison, use_container_width=True, hide_index=True)
+                
+                # Charts
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Overall score comparison
+                    fig_overall = px.bar(
+                        df_comparison,
+                        x="Ngành",
+                        y="Điểm tổng thể",
+                        title="So sánh điểm tổng thể",
+                        color="Điểm tổng thể",
+                        color_continuous_scale="RdYlGn"
+                    )
+                    fig_overall.update_layout(xaxis_tickangle=-45)
+                    st.plotly_chart(fig_overall, use_container_width=True)
+                
+                with col2:
+                    # Score breakdown
+                    fig_breakdown = px.bar(
+                        df_comparison,
+                        x="Ngành",
+                        y=["Điểm momentum", "Điểm giá trị", "Điểm chất lượng"],
+                        title="Phân tích điểm số",
+                        barmode="group"
+                    )
+                    fig_breakdown.update_layout(xaxis_tickangle=-45)
+                    st.plotly_chart(fig_breakdown, use_container_width=True)
+                
+            except Exception as e:
+                st.error(f"❌ Lỗi so sánh ngành: {e}")
+    
+    def _render_industry_list(self):
+        """Render industry list."""
+        st.markdown("### 📋 Danh sách ngành có sẵn")
+        
+        try:
+            available_industries = get_available_industries()
+            
+            if not available_industries:
+                st.warning("⚠️ Không có ngành nào có sẵn")
+                return
+            
+            # Display industries in columns
+            cols = st.columns(3)
+            
+            for i, industry in enumerate(available_industries):
+                with cols[i % 3]:
+                    st.markdown(f"• {industry}")
+            
+            # Industry summary
+            st.markdown("### 📊 Thông tin ngành")
+            
+            try:
+                advisor = IndustryStockAdvisor()
+                
+                # Create summary data
+                summary_data = []
+                for industry in available_industries[:10]:  # Show first 10
+                    try:
+                        summary = advisor.get_industry_summary(industry)
+                        if "error" not in summary:
+                            summary_data.append({
+                                "Ngành": industry,
+                                "Số cổ phiếu": summary["stock_count"],
+                                "P/E ngành": summary["benchmark"]["pe_ratio"],
+                                "P/B ngành": summary["benchmark"]["pb_ratio"],
+                                "ROE ngành": summary["benchmark"]["roe"],
+                                "Biến động": summary["benchmark"]["volatility"] or "N/A"
+                            })
+                    except Exception as e:
+                        st.warning(f"⚠️ Không thể lấy thông tin ngành {industry}: {e}")
+                
+                if summary_data:
+                    df_summary = pd.DataFrame(summary_data)
+                    st.dataframe(df_summary, use_container_width=True, hide_index=True)
+                
+            except Exception as e:
+                st.warning(f"⚠️ Không thể lấy thông tin chi tiết: {e}")
+        
+        except Exception as e:
+            st.error(f"❌ Lỗi lấy danh sách ngành: {e}")
     
     def _render_settings(self):
         """Render settings and configuration."""

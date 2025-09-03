@@ -28,6 +28,18 @@ class InvestmentDecisionTool(BaseTool):
         Tạo quyết định đầu tư cuối cùng dựa trên các phân tích thành phần.
         """
         try:
+            # Chuẩn hoá input để tránh lỗi validation/upstream
+            for name, val in [('fundamental_analysis', fundamental_analysis),
+                              ('technical_analysis', technical_analysis),
+                              ('macro_analysis', macro_analysis)]:
+                if not isinstance(val, str):
+                    try:
+                        locals()[name] = json.dumps(val, ensure_ascii=False)
+                    except Exception:
+                        locals()[name] = str(val)
+            fundamental_analysis = locals().get('fundamental_analysis', '') or ''
+            technical_analysis = locals().get('technical_analysis', '') or ''
+            macro_analysis = locals().get('macro_analysis', '') or ''
             # Phân tích và chấm điểm từng yếu tố
             fundamental_score = self._score_fundamental_analysis(fundamental_analysis)
             technical_score = self._score_technical_analysis(technical_analysis)
@@ -113,14 +125,20 @@ class InvestmentDecisionTool(BaseTool):
         
         # Kiểm tra lỗi tool - điểm rất thấp
         if any(word in analysis_lower for word in ['error', 'failed', 'validation failed', 'don\'t exist']):
-            return 2.0  # Điểm rất thấp khi tool bị lỗi
+            # Xem như trung tính khi công cụ lỗi để tránh kéo tụt sang BÁN không hợp lý
+            return 5.5
         
         # Nếu không có dữ liệu thực → điểm thận trọng
         if 'phân tích kỹ thuật chưa đầy đủ' in analysis_lower:
-            return 3.0
+            return 5.0
             
         score = 5.0  # Điểm trung bình
         
+        # Ưu tiên mạnh khi cổ phiếu đang tăng trần / limit-up
+        if any(term in analysis_lower for term in ['tăng trần', 'đang trần', 'trần', 'limit up', 'limit-up']):
+            # Nếu xuất hiện tín hiệu trần, coi như kỹ thuật rất mạnh
+            return 8.8
+
         # Điểm cộng
         positive_signals = [
             ('tăng', 0.5), ('tích cực', 1.0), ('bullish', 1.5),
@@ -207,12 +225,20 @@ class InvestmentDecisionTool(BaseTool):
             warning_factors.append("Nhiều yếu tố yếu")
         
         # Áp dụng logic override
+        # Thư giãn override trong trường hợp kỹ thuật rất mạnh (ví dụ đang tăng trần)
+        technical_extremely_strong = tech_score >= 8.5
         if extreme_negative:
             if overall_score >= 7.5:
                 return "GIỮ", f"Hạ từ MUA do cảnh báo rủi ro ({', '.join(warning_factors)})"
             elif overall_score >= 5.5:
+                # Nếu kỹ thuật rất mạnh thì chỉ hạ tối đa về GIỮ thay vì BÁN
+                if technical_extremely_strong:
+                    return "GIỮ", f"Giữ do kỹ thuật rất mạnh; có cảnh báo: {', '.join(warning_factors)}"
                 return "BÁN", f"Hạ từ GIỮ do cảnh báo rủi ro cao ({', '.join(warning_factors)})"
             else:
+                # Nếu kỹ thuật rất mạnh thì tối đa về GIỮ
+                if technical_extremely_strong:
+                    return "GIỮ", f"Giữ do kỹ thuật rất mạnh; có cảnh báo: {', '.join(warning_factors)}"
                 return "BÁN", f"Cảnh báo rủi ro cao ({', '.join(warning_factors)})"
         
         # Logic bình thường
@@ -245,6 +271,12 @@ class InvestmentDecisionTool(BaseTool):
         else:  # BÁN
             buy_price = current_price * 0.80  # Chỉ mua khi giảm sâu 20%
             sell_price = current_price * 1.05  # Bán sớm khi tăng 5%
+        
+        # Đảm bảo không trả về giá 0 hoặc âm trong mọi trường hợp
+        if not (buy_price and buy_price > 0):
+            buy_price = current_price * 0.9
+        if not (sell_price and sell_price > 0):
+            sell_price = current_price * 1.05
         
         return round(buy_price, 0), round(sell_price, 0)
     

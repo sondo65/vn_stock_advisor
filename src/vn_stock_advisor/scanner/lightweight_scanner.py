@@ -148,9 +148,9 @@ class LightweightStockScanner:
     def _extract_fundamental_metrics(self, fund_data: str) -> Dict[str, float]:
         """Trích xuất các chỉ số cơ bản từ dữ liệu."""
         metrics = {
-            "pe_ratio": 0.0,
-            "pb_ratio": 0.0,
-            "roe": 0.0,
+            "pe_ratio": None,
+            "pb_ratio": None,
+            "roe": None,
             "current_price": 0.0,
             "market_cap": 0.0
         }
@@ -160,11 +160,26 @@ class LightweightStockScanner:
             for line in lines:
                 line = line.strip()
                 if 'P/E:' in line or 'Tỷ lệ P/E:' in line:
-                    metrics["pe_ratio"] = float(line.split(':')[-1].strip())
+                    value = line.split(':')[-1].strip()
+                    if value != 'N/A' and value != '':
+                        try:
+                            metrics["pe_ratio"] = float(value)
+                        except ValueError:
+                            pass
                 elif 'P/B:' in line or 'Tỷ lệ P/B:' in line:
-                    metrics["pb_ratio"] = float(line.split(':')[-1].strip())
+                    value = line.split(':')[-1].strip()
+                    if value != 'N/A' and value != '':
+                        try:
+                            metrics["pb_ratio"] = float(value)
+                        except ValueError:
+                            pass
                 elif 'ROE:' in line or 'Tỷ lệ ROE:' in line:
-                    metrics["roe"] = float(line.split(':')[-1].strip())
+                    value = line.split(':')[-1].strip()
+                    if value != 'N/A' and value != '':
+                        try:
+                            metrics["roe"] = float(value)
+                        except ValueError:
+                            pass
         except Exception as e:
             self.logger.warning(f"Error extracting fundamental metrics: {e}")
         
@@ -220,8 +235,8 @@ class LightweightStockScanner:
     
     def _calculate_value_score(self, pb_ratio: float, industry: str) -> float:
         """Tính điểm giá trị dựa trên P/B so với ngành."""
-        if pb_ratio <= 0:
-            return 0.0
+        if pb_ratio is None or pb_ratio <= 0:
+            return 5.0  # Neutral score for missing data
         
         # Lấy benchmark của ngành
         benchmark = self.industry_pb_benchmarks.get(industry, self.industry_pb_benchmarks["Default"])
@@ -245,32 +260,36 @@ class LightweightStockScanner:
         score = 5.0  # Base score
         
         # RSI score (30-70 là tốt, <30 quá bán, >70 quá mua)
-        rsi = signals["rsi"]
-        if 35 <= rsi <= 65:  # Vùng lành mạnh
-            score += 2.0
-        elif 30 <= rsi < 35 or 65 < rsi <= 70:  # Gần vùng quá mua/bán
-            score += 1.0
-        elif rsi < 30:  # Quá bán - có thể là cơ hội
-            score += 1.5
-        elif rsi > 70:  # Quá mua - rủi ro
-            score -= 1.0
+        rsi = signals.get("rsi", None)
+        if rsi is not None:
+            if 35 <= rsi <= 65:  # Vùng lành mạnh
+                score += 2.0
+            elif 30 <= rsi < 35 or 65 < rsi <= 70:  # Gần vùng quá mua/bán
+                score += 1.0
+            elif rsi < 30:  # Quá bán - có thể là cơ hội
+                score += 1.5
+            elif rsi > 70:  # Quá mua - rủi ro
+                score -= 1.0
         
         # MACD signal
-        if signals["macd_signal"] == "positive":
+        macd_signal = signals.get("macd_signal", None)
+        if macd_signal == "positive":
             score += 2.5
-        elif signals["macd_signal"] == "negative":
+        elif macd_signal == "negative":
             score -= 2.0
         
         # MA Trend
-        if signals["ma_trend"] == "upward":
+        ma_trend = signals.get("ma_trend", None)
+        if ma_trend == "upward":
             score += 2.0
-        elif signals["ma_trend"] == "downward":
+        elif ma_trend == "downward":
             score -= 2.0
         
         # Volume trend
-        if signals["volume_trend"] == "increasing":
+        volume_trend = signals.get("volume_trend", None)
+        if volume_trend == "increasing":
             score += 1.5
-        elif signals["volume_trend"] == "decreasing":
+        elif volume_trend == "decreasing":
             score -= 1.0
         
         return max(0.0, min(10.0, score))
@@ -280,24 +299,27 @@ class LightweightStockScanner:
         score = 5.0
         
         # ROE score
-        roe = fundamental_metrics.get("roe", 0)
-        if roe > 15:  # ROE cao
-            score += 2.0
-        elif roe > 10:
-            score += 1.0
-        elif roe < 5:
-            score -= 1.0
+        roe = fundamental_metrics.get("roe", None)
+        if roe is not None:
+            if roe > 15:  # ROE cao
+                score += 2.0
+            elif roe > 10:
+                score += 1.0
+            elif roe < 5:
+                score -= 1.0
         
         # P/E reasonable check
-        pe = fundamental_metrics.get("pe_ratio", 0)
-        if 0 < pe < 25:  # P/E hợp lý
-            score += 1.5
-        elif pe > 50:  # P/E quá cao
-            score -= 1.0
+        pe = fundamental_metrics.get("pe_ratio", None)
+        if pe is not None and pe > 0:
+            if 0 < pe < 25:  # P/E hợp lý
+                score += 1.5
+            elif pe > 50:  # P/E quá cao
+                score -= 1.0
         
-        # Data completeness
-        if all(v > 0 for v in fundamental_metrics.values()):
-            score += 1.5
+        # Data completeness - check if we have at least some data
+        valid_data_count = sum(1 for v in fundamental_metrics.values() if v is not None and v > 0)
+        if valid_data_count >= 2:  # At least 2 valid metrics
+            score += 1.0
         
         return max(0.0, min(10.0, score))
     

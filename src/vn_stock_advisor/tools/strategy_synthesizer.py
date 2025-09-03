@@ -19,6 +19,7 @@ class StrategySynthesizerInput(BaseModel):
     technical_analysis: str = Field(..., description="Kết quả phân tích kỹ thuật")
     macro_analysis: str = Field(default="", description="Phân tích vĩ mô (tùy chọn)")
     current_price: float = Field(default=0.0, description="Giá hiện tại")
+    final_decision: str = Field(default="", description="Khuyến nghị cuối cùng từ Investment Decision Tool (MUA/GIỮ/BÁN)")
 
 class StrategySynthesizerTool(BaseTool):
     """Tool tổng hợp chiến lược đầu tư từ các phân tích thành phần."""
@@ -43,7 +44,7 @@ class StrategySynthesizerTool(BaseTool):
         return self._components.get('logger')
     
     def _run(self, symbol: str, fundamental_analysis: str, technical_analysis: str, 
-            macro_analysis: str = "", current_price: float = 0.0) -> str:
+            macro_analysis: str = "", current_price: float = 0.0, final_decision: str = "") -> str:
         """Synthesize investment strategy from analysis results."""
         try:
             # Extract insights
@@ -70,7 +71,7 @@ class StrategySynthesizerTool(BaseTool):
             # Generate strategy
             strategy = self._generate_complete_strategy(
                 symbol, scores, overall_trend, price_levels, risk_assessment, 
-                fund_insights, tech_insights, current_price
+                fund_insights, tech_insights, current_price, external_decision=final_decision
             )
             
             return strategy
@@ -186,7 +187,7 @@ class StrategySynthesizerTool(BaseTool):
     
     def _generate_complete_strategy(self, symbol: str, scores: Dict, overall_trend: Dict, 
                                   price_levels: Dict, risk_assessment: Dict, fund_insights: Dict, 
-                                  tech_insights: Dict, current_price: float) -> str:
+                                  tech_insights: Dict, current_price: float, external_decision: str = "") -> str:
         """Generate complete investment strategy with scoring."""
         
         strategy_parts = []
@@ -287,19 +288,26 @@ class StrategySynthesizerTool(BaseTool):
 
         # Final recommendation with improved override logic
         if extreme_negative:
+            # Nếu kỹ thuật rất mạnh, không hạ quá GIỮ
+            technical_extremely_strong = scores.get('technical', 0) >= 8.5 or scores.get('trend', 0) >= 8.5
             # Always override when there are extreme negative signals
             if overall_score >= 7.5:
-                # High score but with extreme risks - downgrade to HOLD with warning
                 recommendation = "**🟡 KHUYẾN NGHỊ: GIỮ/THEO DÕI**"
                 confidence_text = f"Hạ từ MUA do cảnh báo rủi ro ({', '.join(warning_factors)})"
             elif overall_score >= 5.5:
-                # Medium score with extreme risks - downgrade to SELL
-                recommendation = "**🔴 KHUYẾN NGHỊ: TRÁNH/BÁN**"
-                confidence_text = f"Hạ từ GIỮ do cảnh báo rủi ro cao ({', '.join(warning_factors)})"
+                if technical_extremely_strong:
+                    recommendation = "**🟡 KHUYẾN NGHỊ: GIỮ/THEO DÕI**"
+                    confidence_text = f"Giữ do kỹ thuật rất mạnh; có cảnh báo: {', '.join(warning_factors)}"
+                else:
+                    recommendation = "**🔴 KHUYẾN NGHỊ: TRÁNH/BÁN**"
+                    confidence_text = f"Hạ từ GIỮ do cảnh báo rủi ro cao ({', '.join(warning_factors)})"
             else:
-                # Low score with extreme risks - definitely SELL
-                recommendation = "**🔴 KHUYẾN NGHỊ: TRÁNH/BÁN**"
-                confidence_text = f"Cảnh báo rủi ro cao ({', '.join(warning_factors)})"
+                if technical_extremely_strong:
+                    recommendation = "**🟡 KHUYẾN NGHỊ: GIỮ/THEO DÕI**"
+                    confidence_text = f"Giữ do kỹ thuật rất mạnh; có cảnh báo: {', '.join(warning_factors)}"
+                else:
+                    recommendation = "**🔴 KHUYẾN NGHỊ: TRÁNH/BÁN**"
+                    confidence_text = f"Cảnh báo rủi ro cao ({', '.join(warning_factors)})"
         elif overall_score >= 7.5:
             recommendation = "**🟢 KHUYẾN NGHỊ: MUA**"
             confidence_text = "Độ tin cậy cao"
@@ -310,7 +318,21 @@ class StrategySynthesizerTool(BaseTool):
             recommendation = "**🔴 KHUYẾN NGHỊ: TRÁNH/BÁN**"
             confidence_text = "Độ tin cậy thấp"
         
-        strategy_parts.append(f"{recommendation} ({confidence_text})")
+        # Nếu có khuyến nghị cuối cùng từ Investment Decision Tool, đồng bộ hiển thị
+        external_decision = (external_decision or "").strip().upper()
+        if external_decision in {"MUA", "GIỮ", "GIỮ/THEO DÕI", "BAN", "BÁN"}:
+            mapping = {
+                "MUA": "**🟢 KHUYẾN NGHỊ: MUA**",
+                "GIỮ": "**🟡 KHUYẾN NGHỊ: GIỮ/THEO DÕI**",
+                "GIỮ/THEO DÕI": "**🟡 KHUYẾN NGHỊ: GIỮ/THEO DÕI**",
+                "BÁN": "**🔴 KHUYẾN NGHỊ: TRÁNH/BÁN**",
+                "BAN": "**🔴 KHUYẾN NGHỊ: TRÁNH/BÁN**",
+            }
+            synced_reco = mapping.get(external_decision, recommendation)
+            # Ghi chú đồng bộ hoá để minh bạch
+            strategy_parts.append(f"{synced_reco} (Đồng bộ với quyết định cuối cùng của hệ thống)")
+        else:
+            strategy_parts.append(f"{recommendation} ({confidence_text})")
         
         # Add warning explanation if override occurred
         if extreme_negative:
