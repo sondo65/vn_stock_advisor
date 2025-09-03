@@ -40,17 +40,3 @@
 **Đánh giá tổng thể:** Thị trường trong trạng thái cân bằng, chờ đợi các tín hiệu tích cực từ chính sách và kết quả kinh doanh.
 
 *Phân tích được thực hiện vào 2025-09-03 và sẽ được cache trong 24 giờ*
-
-## 🎯 TÁC ĐỘNG DỰ KIẾN ĐẾN CÁC NHÓM NGÀNH VÀ CỔ PHIẾU
-
-**Nhóm ngành:**
-
-• **Ngân hàng:** Tăng trưởng ổn định, hưởng lợi từ chính sách tiền tệ
-• **Bất động sản:** Cẩn trọng, chờ đợi tín hiệu tích cực từ thị trường
-• **Công nghệ:** Tiềm năng tăng trưởng cao, thu hút dòng vốn đầu tư
-
-**Cổ phiếu:**
-
-*Cần phân tích cụ thể từng cổ phiếu dựa trên báo cáo tài chính và các yếu tố khác*
-
-**Lưu ý:** Phân tích này chỉ mang tính chất tham khảo và không phải là lời khuyên đầu tư.

@@ -144,7 +144,8 @@ class StockAnalysisApp:
         if 'openai_api_key' not in st.session_state:
             st.session_state.openai_api_key = os.environ.get('OPENAI_API_KEY', '')
         if 'use_chatgpt_summary' not in st.session_state:
-            st.session_state.use_chatgpt_summary = False
+            # Mặc định luôn bật tổng kết bằng ChatGPT (nếu có API key)
+            st.session_state.use_chatgpt_summary = True
 
     def _initialize_components(self):
         """Initialize data components."""
@@ -1084,19 +1085,15 @@ PHÂN TÍCH MACHINE LEARNING:
             st.success("Đã xóa lịch sử phân tích!")
 
         st.markdown("### 🤖 Tích hợp ChatGPT cho phần Kết luận & Chiến lược")
-        col_api1, col_api2 = st.columns([2, 1])
-        with col_api1:
-            st.session_state.openai_api_key = st.text_input(
-                "OpenAI API Key",
-                value=st.session_state.get('openai_api_key', ''),
-                type="password",
-                help="Dùng để tổng kết phần KẾT LUẬN & CHIẾN LƯỢC qua ChatGPT"
-            )
-        with col_api2:
-            st.session_state.use_chatgpt_summary = st.checkbox(
-                "Dùng ChatGPT tổng kết",
-                value=st.session_state.get('use_chatgpt_summary', False)
-            )
+        st.info("Hệ thống tự động sử dụng ChatGPT nếu tìm thấy `OPENAI_API_KEY` trong file .env")
+        env_key_present = bool(os.environ.get('OPENAI_API_KEY'))
+        if env_key_present:
+            st.success("Đã phát hiện OPENAI_API_KEY từ .env. Tự động bật tổng kết ChatGPT.")
+            # Đồng bộ lại session state từ môi trường phòng trường hợp thay đổi lúc runtime
+            st.session_state.openai_api_key = os.environ.get('OPENAI_API_KEY', '')
+            st.session_state.use_chatgpt_summary = True
+        else:
+            st.warning("Chưa tìm thấy OPENAI_API_KEY trong .env. Vui lòng thêm biến này để dùng tổng kết ChatGPT.")
     
     def _export_pdf(self, analysis: Dict[str, Any]):
         """Export analysis to PDF."""
