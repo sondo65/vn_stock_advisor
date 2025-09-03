@@ -620,6 +620,38 @@ async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     asyncio.create_task(_do_restart())
 
 
+async def ui_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Launch Streamlit UI in the background and send the URL to the user."""
+    try:
+        # Prefer project venv python if exists, fallback to current interpreter
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        venv_python = os.path.join(project_root, ".venv", "bin", "python")
+        python_exec = venv_python if os.path.exists(venv_python) else sys.executable
+
+        # Build command to run via `python -m streamlit`
+        app_path = os.path.join(project_root, "streamlit_app.py")
+        if sys.platform == "win32":
+            # Windows detached start
+            os.spawnl(os.P_NOWAIT, python_exec, python_exec, "-m", "streamlit", "run", app_path)
+        else:
+            # Unix/Mac detached with logs
+            log_dir = os.path.expanduser("~/Library/Logs")
+            os.makedirs(log_dir, exist_ok=True)
+            out_log = os.path.join(log_dir, "vnstockadvisor.streamlit.out.log")
+            err_log = os.path.join(log_dir, "vnstockadvisor.streamlit.err.log")
+            cmd = (
+                f"nohup '{python_exec}' -m streamlit run '{app_path}' >> "
+                f"'{out_log}' 2>> '{err_log}' &"
+            )
+            os.system(cmd)
+
+        await update.message.reply_text(
+            "Đã mở UI Streamlit. Mở trình duyệt tại: http://localhost:8501"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Không thể mở UI: {e}")
+
+
 async def schedule_user_job(app: Application, user_id: int) -> None:
     hhmm = await get_schedule(user_id)
     chat_id = await get_user_chat_id(user_id)
@@ -689,6 +721,7 @@ def main() -> None:
     application.add_handler(CommandHandler("confirm_reset", confirm_reset_cmd))
     application.add_handler(CommandHandler("cancel_reset", cancel_reset_cmd))
     application.add_handler(CommandHandler("restart", restart_cmd))
+    application.add_handler(CommandHandler("ui", ui_cmd))
 
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
