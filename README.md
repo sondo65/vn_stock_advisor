@@ -78,6 +78,12 @@ GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini/gemini-2.0-flash-001
 GEMINI_REASONING_MODEL=gemini/gemini-2.5-flash-preview-04-17
 SERPER_API_KEY=your_serper_api_key
+# Telegram Bot (tuỳ chọn nếu dùng Telegram Portfolio Bot)
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+# ví dụ: 123456789 hoặc -1001234567890 (group/channel)
+DEFAULT_CHAT_ID=
+# ví dụ: /Users/you/Documents/portfolio.sqlite3 (để trống sẽ dùng mặc định cạnh script)
+TELEGRAM_PORTFOLIO_DB=
 ```
 
 ## 🎯 Cách sử dụng
@@ -100,6 +106,47 @@ cd api && uvicorn main:app --reload --host 0.0.0.0 --port 8000
 # Sử dụng lệnh sau để chạy chương trình
 crewai run
 ```
+
+### 5. Telegram Portfolio Bot (local-first)
+Bot Telegram quản lý danh mục chạy trên máy Mac (local), lưu SQLite, có đặt lịch phân tích hàng ngày.
+
+Tính năng:
+- Bot asyncio `python-telegram-bot` v21
+- Lưu `positions`, `transactions`, `settings` vào SQLite
+- Decision engine plug-point: BUY_MORE / HOLD / SELL
+- Đặt lịch hằng ngày bằng JobQueue (máy phải bật, process đang chạy)
+- Lệnh: add/sell, portfolio, pnl, analyze_now, set_schedule
+
+Cài đặt nhanh:
+```bash
+pip install python-telegram-bot==21.6 aiosqlite pydantic python-dotenv
+```
+Tạo biến môi trường (hoặc thêm vào `.env`):
+```bash
+export TELEGRAM_BOT_TOKEN="<your_bot_token>"
+# tuỳ chọn: chat id để bot gửi thông báo khi khởi động
+export DEFAULT_CHAT_ID="<your_chat_id>"
+# tuỳ chọn: đường dẫn DB
+# export TELEGRAM_PORTFOLIO_DB="/absolute/path/portfolio.sqlite3"
+```
+Chạy bot:
+```bash
+python telegram_portfolio_bot.py
+```
+
+Các lệnh Telegram:
+- `/start` — đăng ký user, khởi tạo
+- `/help` — hướng dẫn
+- `/add <mã> <sl> <giá>` — mua/thêm vị thế
+- `/sell <mã> <sl> <giá>` — bán
+- `/portfolio` — xem danh mục
+- `/pnl` — PnL theo giá hiện tại
+- `/analyze_now` — phân tích ngay và gợi ý hành động
+- `/set_schedule <HH:MM>` — đặt giờ chạy hàng ngày theo giờ máy
+
+Điểm tích hợp (mở `telegram_portfolio_bot.py`):
+- `PredictionEngine.predict(symbol)` — gọi mô hình/advisor hiện có để trả về quyết định
+- `MarketData.get_price(symbol)` — lấy giá hiện tại (mặc định thử `vnstock`)
 
 ### 4. Chạy Industry Stock Advisor (Gợi ý cổ phiếu theo ngành)
 ```bash
@@ -181,6 +228,12 @@ GEMINI_MODEL=gemini/gemini-2.0-flash-001
 GEMINI_REASONING_MODEL=gemini/gemini-2.5-flash-preview-04-17
 SERPER_API_KEY=your_serper_api_key
 FIRECRAWL_API_KEY=your_firecrawl_api_key
+# Telegram Bot (optional if you use Telegram Portfolio Bot)
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+# example: 123456789 or -1001234567890 (group/channel)
+DEFAULT_CHAT_ID=
+# example: /Users/you/Documents/portfolio.sqlite3 (leave empty to use default next to the script)
+TELEGRAM_PORTFOLIO_DB=
 ```
 
 ### Usage
