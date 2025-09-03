@@ -45,9 +45,9 @@
 
 **Nhóm ngành:**
 
-• **Ngân hàng:** Tăng trưởng tín dụng ổn định, triển vọng tích cực
-• **Bất động sản:** Thị trường đang hồi phục, cần theo dõi chính sách
-• **Công nghệ:** Tiềm năng tăng trưởng cao, thu hút đầu tư
+• **Ngân hàng:** Tăng trưởng ổn định, hưởng lợi từ chính sách tiền tệ
+• **Bất động sản:** Cẩn trọng, chờ đợi tín hiệu tích cực từ thị trường
+• **Công nghệ:** Tiềm năng tăng trưởng cao, thu hút dòng vốn đầu tư
 
 **Cổ phiếu:**
 

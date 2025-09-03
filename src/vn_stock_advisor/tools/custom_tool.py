@@ -141,24 +141,38 @@ class FundDataTool(BaseTool):
                 quarterly_trends = []
                 for i, (_, quarter) in enumerate(last_4_quarters.iterrows()):
                     try:
-                        # Handle formatting of values properly - VCI format
-                        revenue = quarter.get("Revenue (Bn. VND)", "N/A")
-                        revenue_formatted = f"{revenue:,.0f}" if isinstance(revenue, (int, float)) and revenue != "N/A" else revenue
-                        
-                        gross_profit = quarter.get("Gross Profit", "N/A")
-                        gross_profit_formatted = f"{gross_profit:,.0f}" if isinstance(gross_profit, (int, float)) and gross_profit != "N/A" else gross_profit
-                        
-                        post_tax_profit = quarter.get("Net Profit For the Year", "N/A")
-                        post_tax_profit_formatted = f"{post_tax_profit:,.0f}" if isinstance(post_tax_profit, (int, float)) and post_tax_profit != "N/A" else post_tax_profit
-                        
+                        # Detect and normalize units
+                        # Revenue
+                        revenue = quarter.get("Revenue (Bn. VND)", None)
+                        if isinstance(revenue, (int, float)):
+                            revenue_bn = revenue if revenue < 1e7 else revenue / 1e9
+                            revenue_str = f"{revenue_bn:,.0f} tỉ đồng"
+                        else:
+                            revenue_str = "N/A"
+                        # Gross Profit
+                        gross_profit = quarter.get("Gross Profit", None)
+                        if isinstance(gross_profit, (int, float)):
+                            # Assume VND
+                            gp_bn = gross_profit / 1e9 if gross_profit >= 1e7 else gross_profit
+                            gross_profit_str = f"{gp_bn:,.0f} tỉ đồng" if gross_profit >= 1e7 else f"{gp_bn:,.0f} VND"
+                        else:
+                            gross_profit_str = "N/A"
+                        # Net Profit For the Year
+                        post_tax_profit = quarter.get("Net Profit For the Year", None)
+                        if isinstance(post_tax_profit, (int, float)):
+                            npty_bn = post_tax_profit / 1e9 if post_tax_profit >= 1e7 else post_tax_profit
+                            post_tax_profit_str = f"{npty_bn:,.0f} tỉ đồng" if post_tax_profit >= 1e7 else f"{npty_bn:,.0f} VND"
+                        else:
+                            post_tax_profit_str = "N/A"
+
                         quarter_info = f"""
                         Quý T - {i + 1}:
-                        - Doanh thu thuần: {revenue_formatted} tỉ đồng
-                        - Lợi nhuận gộp: {gross_profit_formatted} tỉ đồng
-                        - Lợi nhuận sau thuế: {post_tax_profit_formatted} tỉ đồng
+                        - Doanh thu thuần: {revenue_str}
+                        - Lợi nhuận gộp: {gross_profit_str}
+                        - Lợi nhuận sau thuế: {post_tax_profit_str}
                         """
                         quarterly_trends.append(quarter_info)
-                    except Exception as quarter_error:
+                    except Exception:
                         quarterly_trends.append(f"Quý T - {i + 1}: Lỗi dữ liệu")
             else:
                 quarterly_trends = ["Không có dữ liệu báo cáo thu nhập"]
