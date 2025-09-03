@@ -162,6 +162,24 @@ CREATE_TABLES_SQL = [
         timezone_offset_min INTEGER DEFAULT 0
     );
     """,
+    """
+    CREATE TABLE IF NOT EXISTS tracking_settings (
+        user_id INTEGER PRIMARY KEY,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        sl_pct REAL NOT NULL DEFAULT 0.05,
+        tp_pct REAL NOT NULL DEFAULT 0.07,
+        vol_ma_days INTEGER NOT NULL DEFAULT 10,
+        last_config_ts TEXT
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS stock_stoploss (
+        user_id INTEGER NOT NULL,
+        symbol TEXT NOT NULL,
+        stoploss_pct REAL NOT NULL DEFAULT 0.05,
+        PRIMARY KEY (user_id, symbol)
+    );
+    """,
 ]
 
 
@@ -187,6 +205,260 @@ async def get_user_chat_id(user_id: int) -> Optional[str]:
         async with db.execute("SELECT chat_id FROM users WHERE user_id=?", (user_id,)) as cur:
             row = await cur.fetchone()
             return row[0] if row else None
+
+
+async def get_tracking_settings(user_id: int) -> tuple[bool, float, float, int]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT enabled, sl_pct, tp_pct, vol_ma_days FROM tracking_settings WHERE user_id=?",
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return (False, 0.05, 0.07, 10)
+            enabled = bool(int(row[0]))
+            return (enabled, float(row[1]), float(row[2]), int(row[3]))
+
+
+async def set_tracking_settings(
+    user_id: int,
+    enabled: Optional[bool] = None,
+    sl_pct: Optional[float] = None,
+    tp_pct: Optional[float] = None,
+    vol_ma_days: Optional[int] = None,
+) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO tracking_settings (user_id, enabled, sl_pct, tp_pct, vol_ma_days, last_config_ts) VALUES (?, 0, 0.05, 0.07, 10, ?)",
+            (user_id, datetime.now(timezone.utc).isoformat()),
+        )
+        fields = []
+        vals = []
+        if enabled is not None:
+            fields.append("enabled=?")
+            vals.append(1 if enabled else 0)
+        if sl_pct is not None:
+            fields.append("sl_pct=?")
+            vals.append(sl_pct)
+        if tp_pct is not None:
+            fields.append("tp_pct=?")
+            vals.append(tp_pct)
+        if vol_ma_days is not None:
+            fields.append("vol_ma_days=?")
+            vals.append(vol_ma_days)
+        fields.append("last_config_ts=?")
+        vals.append(datetime.now(timezone.utc).isoformat())
+        vals.append(user_id)
+        await db.execute(
+            f"UPDATE tracking_settings SET {', '.join(fields)} WHERE user_id=?",
+            vals,
+        )
+        await db.commit()
+
+
+async def get_stock_stoploss(user_id: int, symbol: str) -> float:
+    """Get individual stoploss percentage for a specific stock."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT stoploss_pct FROM stock_stoploss WHERE user_id=? AND symbol=?",
+            (user_id, symbol),
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else 0.05  # Default 5%
+
+
+async def set_stock_stoploss(user_id: int, symbol: str, stoploss_pct: float) -> None:
+    """Set individual stoploss percentage for a specific stock."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO stock_stoploss (user_id, symbol, stoploss_pct) VALUES (?, ?, ?)",
+            (user_id, symbol, stoploss_pct),
+        )
+        await db.commit()
+
+
+async def get_price_and_volume(symbol: str, vol_ma_days: int) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    try:
+        from vnstock import stock_historical_data
+        today = datetime.now().date()
+        start_date = (today - timedelta(days=max(20, vol_ma_days * 2))).strftime("%Y-%m-%d")
+        end_date = today.strftime("%Y-%m-%d")
+        df = stock_historical_data(
+            symbol=symbol,
+            start=start_date,
+            end=end_date,
+            resolution="1D",
+        )
+        if df is None or len(df) == 0:
+            price = await MarketData.get_price(symbol)
+            return (price, None, None)
+        df = df.dropna(subset=["close", "volume"])  # type: ignore[attr-defined]
+        if df is None or len(df) == 0:  # safety
+            price = await MarketData.get_price(symbol)
+            return (price, None, None)
+        last_close = float(df["close"].iloc[-1])  # type: ignore[index]
+        last_vol = float(df["volume"].iloc[-1])  # type: ignore[index]
+        if len(df) >= vol_ma_days:
+            ma_vol = float(df["volume"].tail(vol_ma_days).mean())  # type: ignore[attr-defined]
+        else:
+            ma_vol = float(df["volume"].mean())  # type: ignore[attr-defined]
+        return (last_close, last_vol, ma_vol)
+    except Exception:
+        price = await MarketData.get_price(symbol)
+        return (price, None, None)
+
+
+async def check_positions_and_alert(app: Application, user_id: int, chat_id: str) -> None:
+    enabled, sl_pct, tp_pct, vol_ma_days = await get_tracking_settings(user_id)
+    if not enabled:
+        return
+    positions = await get_positions(user_id)
+    if not positions:
+        return
+
+    lines: List[str] = ["Theo dõi giá (tự động):"]
+    any_signal = False
+
+    for symbol, qty, avg_cost in positions:
+        price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days)
+        if price is None:
+            continue
+        
+        # Use individual stoploss for this stock
+        individual_sl_pct = await get_stock_stoploss(user_id, symbol)
+        sl_price = avg_cost * (1 - individual_sl_pct)
+        tp_price = avg_cost * (1 + tp_pct)
+
+        if price <= sl_price:
+            any_signal = True
+            lines.append(f"- {symbol}: ⛔ Stoploss kích hoạt. Giá {price:.2f} ≤ {sl_price:.2f} ({individual_sl_pct*100:.0f}%). Gợi ý: SELL.")
+            # Optional: auto record sell in DB (requires confirmation policy)
+            # await add_transaction_and_update_position(user_id, symbol, "SELL", qty, price)
+        elif price >= tp_price:
+            vol_ok = (vol is not None and vol_ma is not None and vol > vol_ma) or (vol is None or vol_ma is None)
+            if vol_ok:
+                any_signal = True
+                lines.append(f"- {symbol}: ✅ Breakout xác nhận. Giá {price:.2f} ≥ {tp_price:.2f}{' & vol>MA' if (vol is not None and vol_ma is not None) else ''}. Gợi ý: BUY_MORE.")
+            else:
+                lines.append(f"- {symbol}: Giá {price:.2f} ≥ {tp_price:.2f} nhưng vol chưa xác nhận (vol≤MA). Theo dõi thêm.")
+
+    if any_signal:
+        await app.bot.send_message(chat_id=chat_id, text="\n".join(lines))
+
+
+async def summarize_eod_and_outlook(app: Application, user_id: int, chat_id: str) -> None:
+    positions = await get_positions(user_id)
+    if not positions:
+        await app.bot.send_message(chat_id=chat_id, text="Tổng kết EOD: Danh mục trống.")
+        return
+
+    lines: List[str] = ["Tổng kết cuối phiên & dự báo cho hôm sau:"]
+    total_pnl = 0.0
+    any_price = False
+
+    for symbol, qty, avg_cost in positions:
+        price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days=10)
+        price_str = f"{price:.2f}" if price is not None else "N/A"
+        pnl = None
+        if price is not None:
+            any_price = True
+            pnl = (price - avg_cost) * qty
+            total_pnl += pnl
+        pnl_str = f"{pnl:.2f}" if pnl is not None else "N/A"
+
+        # Simple next-day outlook heuristic
+        outlook: str
+        if price is not None and avg_cost > 0:
+            change_pct = (price - avg_cost) / avg_cost
+            if vol is not None and vol_ma is not None and vol > vol_ma and change_pct > 0.03:
+                outlook = "Xu hướng tích cực, có thể theo dõi mua gia tăng nếu xác nhận."
+            elif change_pct < -0.03:
+                outlook = "Áp lực bán, cân nhắc giảm tỷ trọng nếu thủng hỗ trợ."
+            else:
+                outlook = "Trung tính, chờ tín hiệu rõ ràng."
+        else:
+            outlook = "Thiếu dữ liệu, theo dõi thêm."
+
+        lines.append(
+            f"- {symbol}: Giá={price_str}, SL={qty:g}, Giá vốn={avg_cost:.2f}, PnL={pnl_str}. Outlook: {outlook}"
+        )
+
+    if any_price:
+        lines.append(f"Tổng PnL ước tính: {total_pnl:.2f}")
+
+    await app.bot.send_message(chat_id=chat_id, text="\n".join(lines))
+
+
+def _vn_time(hh: int, mm: int) -> time:
+    return time(hour=hh, minute=mm)
+
+
+def _track_job_name(user_id: int, tag: str) -> str:
+    return f"track_{tag}_{user_id}"
+
+
+async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
+    chat_id = await get_user_chat_id(user_id)
+    if not chat_id:
+        return
+    enabled, _, _, _ = await get_tracking_settings(user_id)
+    # Remove old tracking jobs
+    for tag in ["ato_once", "morning_15m", "mid_30m", "late_15m", "atc_once", "summary_once"]:
+        for job in app.job_queue.get_jobs_by_name(_track_job_name(user_id, tag)):
+            job.schedule_removal()
+    if not enabled:
+        return
+
+    # 09:05 ATO (once)
+    app.job_queue.run_daily(
+        name=_track_job_name(user_id, "ato_once"),
+        time=_vn_time(9, 5),
+        callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
+    )
+    # 09:15–10:30: every 15 minutes
+    app.job_queue.run_repeating(
+        name=_track_job_name(user_id, "morning_15m"),
+        interval=timedelta(minutes=15),
+        first=_vn_time(9, 15),
+        last=_vn_time(10, 30),
+        callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
+    )
+    # 10:30–13:30: every 30 minutes
+    app.job_queue.run_repeating(
+        name=_track_job_name(user_id, "mid_30m"),
+        interval=timedelta(minutes=30),
+        first=_vn_time(10, 30),
+        last=_vn_time(13, 30),
+        callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
+    )
+    # 13:30–14:30: every 15 minutes
+    app.job_queue.run_repeating(
+        name=_track_job_name(user_id, "late_15m"),
+        interval=timedelta(minutes=15),
+        first=_vn_time(13, 30),
+        last=_vn_time(14, 30),
+        callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
+    )
+    # 14:35 ATC (once)
+    app.job_queue.run_daily(
+        name=_track_job_name(user_id, "atc_once"),
+        time=_vn_time(14, 35),
+        callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
+    )
+    # 14:40 Summary (once)
+    app.job_queue.run_daily(
+        name=_track_job_name(user_id, "summary_once"),
+        time=_vn_time(14, 40),
+        callback=lambda ctx: asyncio.create_task(summarize_eod_and_outlook(app, user_id, chat_id)),
+    )
+
+
+async def bootstrap_tracking(app: Application) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT user_id FROM tracking_settings WHERE enabled=1") as cur:
+            rows = await cur.fetchall()
+            for (uid,) in rows:
+                await schedule_tracking_jobs(app, int(uid))
 
 
 async def add_transaction_and_update_position(
@@ -414,14 +686,18 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Lệnh khả dụng:\n"
         "/add <mã> <sl> <giá> — mua thêm\n"
         "/sell <mã> <sl> <giá> — bán\n"
+        "/set_stoploss <mã> <phần trăm> — đặt stoploss cho từng cổ phiếu\n"
         "/portfolio — xem danh mục\n"
         "/pnl — thống kê lãi lỗ theo giá hiện tại\n"
         "/analyze_now — phân tích ngay và gợi ý hành động\n"
-        "/set_schedule <HH:MM> — đặt giờ chạy phân tích hàng ngày (theo giờ máy)\n"
         "/reset — xóa toàn bộ dữ liệu danh mục (cần xác nhận)\n"
         "/confirm_reset — xác nhận xóa dữ liệu\n"
         "/cancel_reset — hủy yêu cầu xóa\n"
         "/restart — khởi động lại bot (nạp thay đổi mới)\n"
+        "\n"
+        "📊 Tracking tự động theo phiên VN (9:05, 15-30 phút, 14:35, 14:40)\n"
+        "⛔ Stoploss: tự động theo dõi từng cổ phiếu\n"
+        "🚀 Breakout: gợi ý mua thêm khi xác nhận\n"
     )
     await update.message.reply_text(text)
 
@@ -441,6 +717,12 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     await add_transaction_and_update_position(user_id, symbol, "BUY", qty, price)
     await update.message.reply_text(f"Đã mua {qty:g} {symbol} giá {price:.2f}.")
+    
+    # Prompt for stoploss setting
+    await update.message.reply_text(
+        f"💡 Để đặt stoploss cho {symbol}, dùng: /set_stoploss {symbol} <phần trăm>\n"
+        f"Ví dụ: /set_stoploss {symbol} 0.08 (8% stoploss)"
+    )
 
 
 async def sell_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -479,8 +761,11 @@ async def portfolio_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         price_str = f"{price:.2f}" if price is not None else "N/A"
         pnl_val = ((price - effective_avg) * qty) if price is not None else None
         pnl_str = f"{pnl_val:.2f}" if pnl_val is not None else "N/A"
-        stoploss_val = effective_avg * 0.92  # default 8% stoploss below cost
-        stoploss_str = f"{stoploss_val:.2f}"
+        
+        # Get individual stoploss setting for this stock
+        stoploss_pct = await get_stock_stoploss(user_id, symbol)
+        stoploss_val = effective_avg * (1 - stoploss_pct)
+        stoploss_str = f"{stoploss_val:.2f} ({stoploss_pct*100:.0f}%)"
         rows.append((symbol, f"{qty:g}", f"{effective_avg:.2f}", price_str, pnl_str, stoploss_str))
 
     # Column widths
@@ -546,19 +831,7 @@ async def analyze_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await analyze_and_notify(context.application, user_id, chat_id)
 
 
-async def set_schedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    assert update.effective_user is not None
-    user_id = update.effective_user.id
-    if len(context.args) != 1:
-        await update.message.reply_text("Cú pháp: /set_schedule <HH:MM>")
-        return
-    ok = await set_schedule(user_id, context.args[0])
-    if not ok:
-        await update.message.reply_text("Giờ không hợp lệ. Ví dụ: 08:30")
-        return
-    await update.message.reply_text("Đã lưu giờ chạy hàng ngày.")
-    # Reschedule jobs for this user
-    await schedule_user_job(context.application, user_id)
+# (Deprecated) set_schedule_cmd removed; use /track_on or /track_off instead
 
 
 # Pending reset state (in-memory with TTL)
@@ -603,6 +876,37 @@ async def cancel_reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text("Đã hủy yêu cầu xóa dữ liệu.")
     else:
         await update.message.reply_text("Không có yêu cầu xóa nào đang chờ.")
+
+
+# Auto-tracking is now enabled by default on trading days
+# Manual tracking commands removed - tracking is automatic
+
+
+async def set_stoploss_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Set individual stoploss for a specific stock."""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    if len(context.args) != 2:
+        await update.message.reply_text("Cú pháp: /set_stoploss <mã> <stoploss%>\nVí dụ: /set_stoploss VIC 0.08 (8%)")
+        return
+    
+    symbol = context.args[0].upper()
+    try:
+        stoploss_pct = float(context.args[1])
+        if stoploss_pct <= 0 or stoploss_pct > 1:
+            raise ValueError()
+    except ValueError:
+        await update.message.reply_text("Stoploss phải là số từ 0.01 đến 1.0 (1% đến 100%)")
+        return
+    
+    # Check if user has this stock in portfolio
+    positions = await get_positions(user_id)
+    if not any(pos[0] == symbol for pos in positions):
+        await update.message.reply_text(f"Bạn chưa có {symbol} trong danh mục.")
+        return
+    
+    await set_stock_stoploss(user_id, symbol, stoploss_pct)
+    await update.message.reply_text(f"✅ Đã đặt stoploss {symbol}: {stoploss_pct*100:.1f}%")
 
 
 async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -694,6 +998,7 @@ async def push_to_default_chat_if_set(app: Application, text: str) -> None:
 async def _post_init(application: Application) -> None:
     await init_db()
     await bootstrap_schedules(application)
+    await bootstrap_tracking(application)
     await push_to_default_chat_if_set(application, "Bot đã khởi động trên máy local.")
 
 
@@ -716,10 +1021,10 @@ def main() -> None:
     application.add_handler(CommandHandler("portfolio", portfolio_cmd))
     application.add_handler(CommandHandler("pnl", pnl_cmd))
     application.add_handler(CommandHandler("analyze_now", analyze_now_cmd))
-    application.add_handler(CommandHandler("set_schedule", set_schedule_cmd))
     application.add_handler(CommandHandler("reset", reset_cmd))
     application.add_handler(CommandHandler("confirm_reset", confirm_reset_cmd))
     application.add_handler(CommandHandler("cancel_reset", cancel_reset_cmd))
+    application.add_handler(CommandHandler("set_stoploss", set_stoploss_cmd))
     application.add_handler(CommandHandler("restart", restart_cmd))
     application.add_handler(CommandHandler("ui", ui_cmd))
 
