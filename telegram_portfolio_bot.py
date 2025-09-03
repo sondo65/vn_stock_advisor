@@ -1,5 +1,6 @@
 import asyncio
 import os
+import sys
 from dataclasses import dataclass
 from datetime import datetime, time, timezone, timedelta
 from typing import List, Optional, Tuple
@@ -420,6 +421,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/reset — xóa toàn bộ dữ liệu danh mục (cần xác nhận)\n"
         "/confirm_reset — xác nhận xóa dữ liệu\n"
         "/cancel_reset — hủy yêu cầu xóa\n"
+        "/restart — khởi động lại bot (nạp thay đổi mới)\n"
     )
     await update.message.reply_text(text)
 
@@ -603,6 +605,21 @@ async def cancel_reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text("Không có yêu cầu xóa nào đang chờ.")
 
 
+async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Restart the running bot process to load latest code."""
+    # Inform user first
+    try:
+        await update.message.reply_text("Bot sẽ khởi động lại ngay bây giờ...")
+    except Exception:
+        pass
+    # Give Telegram time to deliver the message, then re-exec the process
+    async def _do_restart() -> None:
+        await asyncio.sleep(1.0)
+        os.execv(sys.executable, [sys.executable, *sys.argv])
+
+    asyncio.create_task(_do_restart())
+
+
 async def schedule_user_job(app: Application, user_id: int) -> None:
     hhmm = await get_schedule(user_id)
     chat_id = await get_user_chat_id(user_id)
@@ -671,6 +688,7 @@ def main() -> None:
     application.add_handler(CommandHandler("reset", reset_cmd))
     application.add_handler(CommandHandler("confirm_reset", confirm_reset_cmd))
     application.add_handler(CommandHandler("cancel_reset", cancel_reset_cmd))
+    application.add_handler(CommandHandler("restart", restart_cmd))
 
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
