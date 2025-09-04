@@ -1947,10 +1947,20 @@ async def track_config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     status = "🟢 BẬT" if enabled else "🔴 TẮT"
     
+    # Get individual stoploss settings for each stock
+    positions = await get_positions(user_id)
+    stoploss_info = []
+    if positions:
+        for symbol, qty, avg_cost in positions:
+            individual_sl = await get_stock_stoploss(user_id, symbol)
+            stoploss_info.append(f"• {symbol}: {individual_sl*100:.1f}%")
+    
+    stoploss_text = "\n".join(stoploss_info) if stoploss_info else "Chưa có cổ phiếu nào"
+    
     await update.message.reply_text(
         f"📊 **Cấu hình Tracking hiện tại:**\n\n"
         f"**Trạng thái:** {status}\n"
-        f"**Stop Loss:** Tùy chỉnh theo từng cổ phiếu (dùng /add với stoploss%)\n"
+        f"**Stop Loss theo cổ phiếu:**\n{stoploss_text}\n"
         f"**Take Profit:** {tp_pct*100:.0f}%\n"
         f"**Volume MA:** {vol_ma_days} ngày\n\n"
         f"**Lịch theo dõi:**\n"
