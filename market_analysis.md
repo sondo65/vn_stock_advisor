@@ -1,8 +1,4 @@
-📊 **PHÂN TÍCH VĨ MÔ VÀ THỊ TRƯỜNG** (Cached - 2025-09-03)
-============================================================
-🔄 *Dữ liệu được tái sử dụng từ cache để tối ưu hóa tài nguyên.  Lưu ý: Phân tích này dựa trên dữ liệu ngày 2025-09-03.  Để có phân tích cập nhật nhất cho ngày 2025-09-04, cần thực hiện phân tích mới với `force_refresh: true`.*
-
-📊 **PHÂN TÍCH VĨ MÔ VÀ THỊ TRƯỜNG TOÀN DIỆN** (2025-09-03)
+📊 **PHÂN TÍCH VĨ MÔ VÀ THỊ TRƯỜNG TOÀN DIỆN** (2025-09-04)
 ============================================================
 
 ## 📰 PHÂN TÍCH TIN TỨC THỊ TRƯỜNG
@@ -39,4 +35,4 @@
 
 **Đánh giá tổng thể:** Thị trường trong trạng thái cân bằng, chờ đợi các tín hiệu tích cực từ chính sách và kết quả kinh doanh.
 
-*Phân tích được thực hiện vào 2025-09-03 và sẽ được cache trong 24 giờ*
+*Phân tích được thực hiện vào 2025-09-04 và sẽ được cache trong 24 giờ*

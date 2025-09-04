@@ -19,6 +19,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     Defaults,
+    JobQueue,
 )
 
 
@@ -1150,68 +1151,176 @@ def _track_job_name(user_id: int, tag: str) -> str:
     return f"track_{tag}_{user_id}"
 
 
-async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
-    chat_id = await get_user_chat_id(user_id)
-    if not chat_id:
-        return
-    enabled, _, _, _ = await get_tracking_settings(user_id)
-    # Remove old tracking jobs
-    for tag in ["ato_once", "morning_5m", "mid_5m", "late_5m", "atc_once", "summary_once"]:
-        for job in app.job_queue.get_jobs_by_name(_track_job_name(user_id, tag)):
-            job.schedule_removal()
-    if not enabled:
-        return
+# Callback functions for tracking jobs
+async def tracking_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback for tracking jobs - extracts user_id and chat_id from job data."""
+    try:
+        job = ctx.job
+        user_id = job.data.get('user_id')
+        chat_id = job.data.get('chat_id')
+        job_type = job.data.get('job_type', 'check_positions')
+        
+        print(f"🔥 TRACKING CALLBACK TRIGGERED! Job: {job.name}, Type: {job_type}, User: {user_id}")
+        
+        if not user_id or not chat_id:
+            print(f"Tracking callback: Missing user_id or chat_id in job data")
+            return
+        
+        print(f"Running tracking job: {job_type} for user {user_id}")
+        
+        # Send immediate notification that job is running
+        await ctx.application.bot.send_message(
+            chat_id=chat_id,
+            text=f"🔔 Test job đã chạy! Job: {job.name}, Type: {job_type}"
+        )
+        
+        if job_type == 'check_positions':
+            await check_positions_and_alert(ctx.application, user_id, chat_id)
+        elif job_type == 'summary':
+            await summarize_eod_and_outlook(ctx.application, user_id, chat_id)
+            
+        print(f"✅ Tracking job completed successfully for user {user_id}")
+        
+    except Exception as e:
+        print(f"❌ Error in tracking callback: {e}")
+        # Try to send error message to user if possible
+        try:
+            job = ctx.job
+            user_id = job.data.get('user_id')
+            chat_id = job.data.get('chat_id')
+            if user_id and chat_id:
+                await ctx.application.bot.send_message(
+                    chat_id=chat_id, 
+                    text=f"❌ Lỗi trong tracking tự động: {str(e)}"
+                )
+        except Exception as e2:
+            print(f"❌ Error sending error message: {e2}")
 
-    # 09:05 ATO (once)
-    app.job_queue.run_daily(
-        name=_track_job_name(user_id, "ato_once"),
-        time=_vn_time(9, 5),
-        callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
-    )
-    # 09:15–10:30: every 5 minutes
-    app.job_queue.run_repeating(
-        name=_track_job_name(user_id, "morning_5m"),
-        interval=timedelta(minutes=5),
-        first=_vn_time(9, 15),
-        last=_vn_time(10, 30),
-        callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
-    )
-    # 10:30–13:30: every 5 minutes
-    app.job_queue.run_repeating(
-        name=_track_job_name(user_id, "mid_5m"),
-        interval=timedelta(minutes=5),
-        first=_vn_time(10, 30),
-        last=_vn_time(13, 30),
-        callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
-    )
-    # 13:30–14:30: every 5 minutes
-    app.job_queue.run_repeating(
-        name=_track_job_name(user_id, "late_5m"),
-        interval=timedelta(minutes=5),
-        first=_vn_time(13, 30),
-        last=_vn_time(14, 30),
-        callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
-    )
-    # 14:35 ATC (once)
-    app.job_queue.run_daily(
-        name=_track_job_name(user_id, "atc_once"),
-        time=_vn_time(14, 35),
-        callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
-    )
-    # 14:40 Summary (once)
-    app.job_queue.run_daily(
-        name=_track_job_name(user_id, "summary_once"),
-        time=_vn_time(14, 40),
-        callback=lambda ctx: asyncio.create_task(summarize_eod_and_outlook(app, user_id, chat_id)),
-    )
+
+async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
+    try:
+        # Check if job queue exists
+        if app.job_queue is None:
+            print(f"Schedule tracking: JobQueue is None for user {user_id}")
+            return
+            
+        chat_id = await get_user_chat_id(user_id)
+        if not chat_id:
+            print(f"Schedule tracking: No chat_id found for user {user_id}")
+            return
+        enabled, _, _, _ = await get_tracking_settings(user_id)
+        print(f"Schedule tracking: User {user_id}, enabled={enabled}")
+        
+        # Remove old tracking jobs
+        for tag in ["ato_once", "morning_5m", "mid_5m", "late_5m", "atc_once", "summary_once"]:
+            for job in app.job_queue.get_jobs_by_name(_track_job_name(user_id, tag)):
+                job.schedule_removal()
+        
+        if not enabled:
+            print(f"Schedule tracking: Tracking disabled for user {user_id}")
+            return
+
+        # Job data to pass to callback
+        job_data = {'user_id': user_id, 'chat_id': chat_id}
+        
+        # Get current time to determine which jobs to schedule
+        now = datetime.now()
+        current_time = now.time()
+        
+        print(f"Current time: {current_time}, scheduling jobs for user {user_id}")
+
+        # Schedule jobs based on current time
+        jobs_scheduled = 0
+        
+        # 09:05 ATO (once) - only if current time is before 09:05
+        if current_time < _vn_time(9, 5):
+            app.job_queue.run_daily(
+                name=_track_job_name(user_id, "ato_once"),
+                time=_vn_time(9, 5),
+                callback=tracking_callback,
+                data={**job_data, 'job_type': 'check_positions'},
+            )
+            jobs_scheduled += 1
+            print(f"Scheduled ATO job for user {user_id}")
+        
+        # 09:15–10:30: every 5 minutes - only if current time is before 10:30
+        if current_time < _vn_time(10, 30):
+            app.job_queue.run_repeating(
+                name=_track_job_name(user_id, "morning_5m"),
+                interval=timedelta(minutes=5),
+                first=_vn_time(9, 15),
+                last=_vn_time(10, 30),
+                callback=tracking_callback,
+                data={**job_data, 'job_type': 'check_positions'},
+            )
+            jobs_scheduled += 1
+            print(f"Scheduled morning job for user {user_id}")
+        
+        # 10:30–13:30: every 5 minutes - only if current time is before 13:30
+        if current_time < _vn_time(13, 30):
+            app.job_queue.run_repeating(
+                name=_track_job_name(user_id, "mid_5m"),
+                interval=timedelta(minutes=5),
+                first=_vn_time(10, 30),
+                last=_vn_time(13, 30),
+                callback=tracking_callback,
+                data={**job_data, 'job_type': 'check_positions'},
+            )
+            jobs_scheduled += 1
+            print(f"Scheduled mid job for user {user_id}")
+        
+        # 13:30–14:30: every 5 minutes - only if current time is before 14:30
+        if current_time < _vn_time(14, 30):
+            app.job_queue.run_repeating(
+                name=_track_job_name(user_id, "late_5m"),
+                interval=timedelta(minutes=5),
+                first=_vn_time(13, 30),
+                last=_vn_time(14, 30),
+                callback=tracking_callback,
+                data={**job_data, 'job_type': 'check_positions'},
+            )
+            jobs_scheduled += 1
+            print(f"Scheduled late job for user {user_id}")
+        
+        # 14:35 ATC (once) - only if current time is before 14:35
+        if current_time < _vn_time(14, 35):
+            app.job_queue.run_daily(
+                name=_track_job_name(user_id, "atc_once"),
+                time=_vn_time(14, 35),
+                callback=tracking_callback,
+                data={**job_data, 'job_type': 'check_positions'},
+            )
+            jobs_scheduled += 1
+            print(f"Scheduled ATC job for user {user_id}")
+        
+        # 14:40 Summary (once) - only if current time is before 14:40
+        if current_time < _vn_time(14, 40):
+            app.job_queue.run_daily(
+                name=_track_job_name(user_id, "summary_once"),
+                time=_vn_time(14, 40),
+                callback=tracking_callback,
+                data={**job_data, 'job_type': 'summary'},
+            )
+            jobs_scheduled += 1
+            print(f"Scheduled summary job for user {user_id}")
+        
+        print(f"Schedule tracking: Successfully scheduled {jobs_scheduled} jobs for user {user_id}")
+    except Exception as e:
+        print(f"Error scheduling tracking jobs for user {user_id}: {e}")
 
 
 async def bootstrap_tracking(app: Application) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT user_id FROM tracking_settings WHERE enabled=1") as cur:
-            rows = await cur.fetchall()
-            for (uid,) in rows:
-                await schedule_tracking_jobs(app, int(uid))
+    try:
+        print("Bootstrap tracking: Starting...")
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT user_id FROM tracking_settings WHERE enabled=1") as cur:
+                rows = await cur.fetchall()
+                print(f"Bootstrap tracking: Found {len(rows)} users with tracking enabled")
+                for (uid,) in rows:
+                    await schedule_tracking_jobs(app, int(uid))
+        print("Bootstrap tracking: Completed")
+    except Exception as e:
+        print(f"Error in bootstrap_tracking: {e}")
 
 
 async def add_transaction_and_update_position(
@@ -1900,24 +2009,39 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     
-    # Enable tracking with default settings (sl_pct will be overridden by individual stock stoploss)
-    await set_tracking_settings(user_id, enabled=True, sl_pct=0.05, tp_pct=0.10, vol_ma_days=20)
-    
-    # Schedule tracking jobs
-    await schedule_tracking_jobs(context.application, user_id)
-    
-    await update.message.reply_text(
-        "✅ **Tracking đã được bật!**\n\n"
-        "Bot sẽ tự động theo dõi portfolio của bạn:\n"
-        "• 09:05 - ATO check\n"
-        "• 09:15-10:30 - Mỗi 5 phút\n"
-        "• 10:30-13:30 - Mỗi 5 phút\n"
-        "• 13:30-14:30 - Mỗi 5 phút\n"
-        "• 14:35 - ATC check\n"
-        "• 14:40 - Tóm tắt cuối ngày\n\n"
-        "Sử dụng `/track_config` để tùy chỉnh cài đặt.",
-        parse_mode=ParseMode.MARKDOWN
-    )
+    try:
+        # Enable tracking with default settings (sl_pct will be overridden by individual stock stoploss)
+        await set_tracking_settings(user_id, enabled=True, sl_pct=0.05, tp_pct=0.10, vol_ma_days=20)
+        print(f"Track ON: Enabled tracking for user {user_id}")
+        
+        # Schedule tracking jobs
+        await schedule_tracking_jobs(context.application, user_id)
+        print(f"Track ON: Scheduled jobs for user {user_id}")
+        
+        # Verify jobs were scheduled
+        job_queue = context.application.job_queue
+        if job_queue:
+            all_jobs = list(job_queue.jobs())
+            user_jobs = [job for job in all_jobs if job.name and f"track_" in job.name and str(user_id) in job.name]
+            print(f"Track ON: Found {len(user_jobs)} jobs for user {user_id}")
+        
+        await update.message.reply_text(
+            "✅ **Tracking đã được bật!**\n\n"
+            "Bot sẽ tự động theo dõi portfolio của bạn:\n"
+            "• 09:05 - ATO check\n"
+            "• 09:15-10:30 - Mỗi 5 phút\n"
+            "• 10:30-13:30 - Mỗi 5 phút\n"
+            "• 13:30-14:30 - Mỗi 5 phút\n"
+            "• 14:35 - ATC check\n"
+            "• 14:40 - Tóm tắt cuối ngày\n\n"
+            "Sử dụng `/track_config` để tùy chỉnh cài đặt.\n"
+            f"Đã schedule {len(user_jobs) if 'user_jobs' in locals() else 'N/A'} jobs.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        print(f"Error in track_on_cmd: {e}")
+        await update.message.reply_text(f"❌ Lỗi khi bật tracking: {str(e)}")
 
 
 async def track_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1978,6 +2102,8 @@ async def track_config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     )
 
 
+
+
 async def ui_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Launch Streamlit UI in the background and send the URL to the user."""
     try:
@@ -2010,6 +2136,19 @@ async def ui_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Không thể mở UI: {e}")
 
 
+# Callback function for daily analysis jobs
+async def daily_analysis_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback for daily analysis jobs - extracts user_id and chat_id from job data."""
+    job = ctx.job
+    user_id = job.data.get('user_id')
+    chat_id = job.data.get('chat_id')
+    
+    if not user_id or not chat_id:
+        return
+    
+    await analyze_and_notify(ctx.application, user_id, chat_id)
+
+
 async def schedule_user_job(app: Application, user_id: int) -> None:
     hhmm = await get_schedule(user_id)
     chat_id = await get_user_chat_id(user_id)
@@ -2024,11 +2163,10 @@ async def schedule_user_job(app: Application, user_id: int) -> None:
         job.schedule_removal()
     # Schedule new daily job (local time of the machine)
     app.job_queue.run_daily(
-        callback=lambda ctx: asyncio.create_task(
-            analyze_and_notify(app, user_id, chat_id)
-        ),
+        callback=daily_analysis_callback,
         time=t,
         name=job_name,
+        data={'user_id': user_id, 'chat_id': chat_id},
     )
 
 
@@ -2051,6 +2189,23 @@ async def push_to_default_chat_if_set(app: Application, text: str) -> None:
 
 async def _post_init(application: Application) -> None:
     await init_db()
+    
+    # Ensure JobQueue is started
+    try:
+        if application.job_queue is None:
+            print("JobQueue is None, trying to initialize...")
+            # Try to manually initialize job queue
+            application.job_queue = JobQueue()
+            print("JobQueue manually initialized")
+        
+        if application.job_queue:
+            await application.job_queue.start()
+            print("JobQueue started successfully")
+        else:
+            print("Warning: JobQueue is still None after initialization")
+    except Exception as e:
+        print(f"Error starting JobQueue: {e}")
+    
     await bootstrap_schedules(application)
     await bootstrap_tracking(application)
     await push_to_default_chat_if_set(application, "Bot đã khởi động trên máy local.")
