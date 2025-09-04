@@ -3,9 +3,10 @@ import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, time, timezone, timedelta
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 from enum import Enum
 from collections import deque
+import math
 
 import aiosqlite
 from dotenv import load_dotenv
@@ -105,23 +106,463 @@ class PredictionResult(BaseModel):
     decision: PredictionDecision
     confidence: float = Field(ge=0.0, le=1.0)
     rationale: Optional[str] = None
+    scenarios: Optional[Dict[str, float]] = None  # Kịch bản với xác suất
+    technical_signals: Optional[Dict[str, Any]] = None  # Tín hiệu kỹ thuật
+
+
+class TechnicalIndicators:
+    """Tính toán các chỉ báo kỹ thuật từ dữ liệu giá lịch sử."""
+    
+    @staticmethod
+    def sma(prices: List[float], period: int) -> List[float]:
+        """Simple Moving Average"""
+        if len(prices) < period:
+            return [None] * len(prices)
+        
+        sma_values = []
+        for i in range(len(prices)):
+            if i < period - 1:
+                sma_values.append(None)
+            else:
+                sma_values.append(sum(prices[i-period+1:i+1]) / period)
+        return sma_values
+    
+    @staticmethod
+    def ema(prices: List[float], period: int) -> List[float]:
+        """Exponential Moving Average"""
+        if len(prices) < period:
+            return [None] * len(prices)
+        
+        multiplier = 2 / (period + 1)
+        ema_values = [None] * len(prices)
+        ema_values[period-1] = sum(prices[:period]) / period
+        
+        for i in range(period, len(prices)):
+            ema_values[i] = (prices[i] * multiplier) + (ema_values[i-1] * (1 - multiplier))
+        
+        return ema_values
+    
+    @staticmethod
+    def rsi(prices: List[float], period: int = 14) -> List[float]:
+        """Relative Strength Index"""
+        if len(prices) < period + 1:
+            return [None] * len(prices)
+        
+        rsi_values = [None] * len(prices)
+        gains = []
+        losses = []
+        
+        # Tính thay đổi giá
+        for i in range(1, len(prices)):
+            change = prices[i] - prices[i-1]
+            gains.append(max(change, 0))
+            losses.append(max(-change, 0))
+        
+        # Tính RSI cho từng điểm
+        for i in range(period, len(prices)):
+            avg_gain = sum(gains[i-period:i]) / period
+            avg_loss = sum(losses[i-period:i]) / period
+            
+            if avg_loss == 0:
+                rsi_values[i] = 100
+            else:
+                rs = avg_gain / avg_loss
+                rsi_values[i] = 100 - (100 / (1 + rs))
+        
+        return rsi_values
+    
+    @staticmethod
+    def macd(prices: List[float], fast: int = 12, slow: int = 26, signal: int = 9) -> Dict[str, List[float]]:
+        """MACD (Moving Average Convergence Divergence)"""
+        ema_fast = TechnicalIndicators.ema(prices, fast)
+        ema_slow = TechnicalIndicators.ema(prices, slow)
+        
+        macd_line = []
+        for i in range(len(prices)):
+            if ema_fast[i] is not None and ema_slow[i] is not None:
+                macd_line.append(ema_fast[i] - ema_slow[i])
+            else:
+                macd_line.append(None)
+        
+        # Signal line (EMA của MACD line)
+        macd_values = [x for x in macd_line if x is not None]
+        if len(macd_values) >= signal:
+            signal_line = TechnicalIndicators.ema(macd_values, signal)
+            # Pad với None để match length
+            signal_line = [None] * (len(macd_line) - len(signal_line)) + signal_line
+        else:
+            signal_line = [None] * len(macd_line)
+        
+        # Histogram
+        histogram = []
+        for i in range(len(macd_line)):
+            if macd_line[i] is not None and i < len(signal_line) and signal_line[i] is not None:
+                histogram.append(macd_line[i] - signal_line[i])
+            else:
+                histogram.append(None)
+        
+        return {
+            'macd': macd_line,
+            'signal': signal_line,
+            'histogram': histogram
+        }
+    
+    @staticmethod
+    def bollinger_bands(prices: List[float], period: int = 20, std_dev: float = 2) -> Dict[str, List[float]]:
+        """Bollinger Bands"""
+        sma_values = TechnicalIndicators.sma(prices, period)
+        upper_band = []
+        lower_band = []
+        
+        for i in range(len(prices)):
+            if sma_values[i] is not None and i >= period - 1:
+                # Tính độ lệch chuẩn
+                period_prices = prices[i-period+1:i+1]
+                mean = sma_values[i]
+                variance = sum((x - mean) ** 2 for x in period_prices) / period
+                std = math.sqrt(variance)
+                
+                upper_band.append(mean + (std_dev * std))
+                lower_band.append(mean - (std_dev * std))
+            else:
+                upper_band.append(None)
+                lower_band.append(None)
+        
+        return {
+            'upper': upper_band,
+            'middle': sma_values,
+            'lower': lower_band
+        }
+    
+    @staticmethod
+    def atr(highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> List[float]:
+        """Average True Range"""
+        if len(highs) < period + 1:
+            return [None] * len(highs)
+        
+        true_ranges = []
+        for i in range(1, len(highs)):
+            tr1 = highs[i] - lows[i]
+            tr2 = abs(highs[i] - closes[i-1])
+            tr3 = abs(lows[i] - closes[i-1])
+            true_ranges.append(max(tr1, tr2, tr3))
+        
+        atr_values = [None] * len(highs)
+        for i in range(period, len(highs)):
+            atr_values[i] = sum(true_ranges[i-period:i]) / period
+        
+        return atr_values
 
 
 class PredictionEngine:
     @staticmethod
+    async def get_historical_data(symbol: str, days: int = 60) -> Optional[Dict[str, List[float]]]:
+        """Lấy dữ liệu lịch sử từ vnstock"""
+        try:
+            from vnstock import Vnstock
+            
+            today = datetime.now().date()
+            start_date = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+            end_date = today.strftime("%Y-%m-%d")
+            
+            # Thử các nguồn dữ liệu khác nhau
+            for source in ("VCI", "TCBS", "DNSE", "SSI"):
+                try:
+                    stock = Vnstock().stock(symbol=symbol, source=source)
+                    df = stock.quote.history(
+                        start=start_date,
+                        end=end_date,
+                        interval="1D",
+                    )
+                    if df is not None and not df.empty and len(df) >= 20:
+                        return {
+                            'close': df['close'].tolist(),
+                            'high': df['high'].tolist(),
+                            'low': df['low'].tolist(),
+                            'volume': df['volume'].tolist(),
+                            'time': df['time'].tolist()
+                        }
+                except Exception:
+                    continue
+            
+            # Fallback to legacy method
+            from vnstock import stock_historical_data
+            df = stock_historical_data(
+                symbol=symbol,
+                start=start_date,
+                end=end_date,
+                resolution="1D",
+            )
+            if df is not None and len(df) >= 20:
+                return {
+                    'close': df['close'].tolist(),
+                    'high': df['high'].tolist(),
+                    'low': df['low'].tolist(),
+                    'volume': df['volume'].tolist(),
+                    'time': df['time'].tolist() if 'time' in df.columns else []
+                }
+        except Exception:
+            pass
+        return None
+    
+    @staticmethod
+    def analyze_technical_signals(data: Dict[str, List[float]]) -> Dict[str, Any]:
+        """Phân tích tín hiệu kỹ thuật từ dữ liệu giá"""
+        closes = data['close']
+        highs = data['high']
+        lows = data['low']
+        volumes = data['volume']
+        
+        if len(closes) < 20:
+            return {}
+        
+        # Tính các chỉ báo
+        sma_20 = TechnicalIndicators.sma(closes, 20)
+        sma_50 = TechnicalIndicators.sma(closes, 50)
+        rsi = TechnicalIndicators.rsi(closes, 14)
+        macd_data = TechnicalIndicators.macd(closes)
+        bb_data = TechnicalIndicators.bollinger_bands(closes, 20)
+        atr = TechnicalIndicators.atr(highs, lows, closes, 14)
+        
+        # Lấy giá trị cuối cùng
+        current_price = closes[-1]
+        sma_20_val = sma_20[-1] if sma_20[-1] is not None else None
+        sma_50_val = sma_50[-1] if sma_50[-1] is not None else None
+        rsi_val = rsi[-1] if rsi[-1] is not None else None
+        macd_val = macd_data['macd'][-1] if macd_data['macd'][-1] is not None else None
+        signal_val = macd_data['signal'][-1] if macd_data['signal'][-1] is not None else None
+        bb_upper = bb_data['upper'][-1] if bb_data['upper'][-1] is not None else None
+        bb_lower = bb_data['lower'][-1] if bb_data['lower'][-1] is not None else None
+        atr_val = atr[-1] if atr[-1] is not None else None
+        
+        # Phân tích tín hiệu
+        signals = {
+            'current_price': current_price,
+            'sma_20': sma_20_val,
+            'sma_50': sma_50_val,
+            'rsi': rsi_val,
+            'macd': macd_val,
+            'macd_signal': signal_val,
+            'bb_upper': bb_upper,
+            'bb_lower': bb_lower,
+            'atr': atr_val,
+            'volume_avg': sum(volumes[-10:]) / 10 if len(volumes) >= 10 else None,
+            'volume_current': volumes[-1] if volumes else None
+        }
+        
+        return signals
+    
+    @staticmethod
+    def generate_scenarios(signals: Dict[str, Any]) -> Dict[str, float]:
+        """Tạo các kịch bản dự đoán với xác suất"""
+        current_price = signals.get('current_price', 0)
+        sma_20 = signals.get('sma_20')
+        sma_50 = signals.get('sma_50')
+        rsi = signals.get('rsi')
+        macd = signals.get('macd')
+        signal = signals.get('macd_signal')
+        bb_upper = signals.get('bb_upper')
+        bb_lower = signals.get('bb_lower')
+        atr = signals.get('atr')
+        
+        if not current_price or not atr:
+            return {"Không đủ dữ liệu": 1.0}
+        
+        # Tính điểm cho từng kịch bản
+        bullish_score = 0
+        bearish_score = 0
+        neutral_score = 0
+        
+        # Phân tích xu hướng
+        if sma_20 and sma_50:
+            if current_price > sma_20 > sma_50:
+                bullish_score += 2
+            elif current_price < sma_20 < sma_50:
+                bearish_score += 2
+            else:
+                neutral_score += 1
+        
+        # Phân tích RSI
+        if rsi:
+            if rsi < 30:  # Oversold
+                bullish_score += 1.5
+            elif rsi > 70:  # Overbought
+                bearish_score += 1.5
+            elif 40 <= rsi <= 60:
+                neutral_score += 1
+        
+        # Phân tích MACD
+        if macd and signal:
+            if macd > signal and macd > 0:
+                bullish_score += 1.5
+            elif macd < signal and macd < 0:
+                bearish_score += 1.5
+            else:
+                neutral_score += 0.5
+        
+        # Phân tích Bollinger Bands
+        if bb_upper and bb_lower:
+            if current_price <= bb_lower:
+                bullish_score += 1
+            elif current_price >= bb_upper:
+                bearish_score += 1
+            else:
+                neutral_score += 0.5
+        
+        # Chuẩn hóa điểm số thành xác suất
+        total_score = bullish_score + bearish_score + neutral_score
+        if total_score == 0:
+            return {"Không đủ tín hiệu": 1.0}
+        
+        bullish_prob = bullish_score / total_score
+        bearish_prob = bearish_score / total_score
+        neutral_prob = neutral_score / total_score
+        
+        # Tạo kịch bản chi tiết
+        scenarios = {}
+        
+        if bullish_prob > 0.3:
+            target_up = current_price + (atr * 1.5)
+            scenarios[f"Tăng mạnh (+{((target_up/current_price-1)*100):.1f}%)"] = bullish_prob * 0.6
+            scenarios[f"Tăng nhẹ (+{((current_price + atr*0.5)/current_price-1)*100:.1f}%)"] = bullish_prob * 0.4
+        
+        if bearish_prob > 0.3:
+            target_down = current_price - (atr * 1.5)
+            scenarios[f"Giảm mạnh ({((target_down/current_price-1)*100):.1f}%)"] = bearish_prob * 0.6
+            scenarios[f"Giảm nhẹ ({((current_price - atr*0.5)/current_price-1)*100:.1f}%)"] = bearish_prob * 0.4
+        
+        if neutral_prob > 0.2:
+            scenarios[f"Sideway (±{((atr*0.3)/current_price*100):.1f}%)"] = neutral_prob
+        
+        # Chuẩn hóa xác suất
+        total_prob = sum(scenarios.values())
+        if total_prob > 0:
+            scenarios = {k: v/total_prob for k, v in scenarios.items()}
+        
+        return scenarios
+    
+    @staticmethod
+    def make_decision(signals: Dict[str, Any], scenarios: Dict[str, float]) -> Tuple[PredictionDecision, float, str]:
+        """Đưa ra quyết định dựa trên tín hiệu kỹ thuật"""
+        current_price = signals.get('current_price', 0)
+        sma_20 = signals.get('sma_20')
+        rsi = signals.get('rsi')
+        macd = signals.get('macd')
+        signal = signals.get('macd_signal')
+        
+        if not current_price:
+            return PredictionDecision.HOLD, 0.3, "Không đủ dữ liệu để phân tích"
+        
+        # Tính điểm quyết định
+        buy_score = 0
+        sell_score = 0
+        hold_score = 0
+        
+        # Xu hướng
+        if sma_20 and current_price > sma_20:
+            buy_score += 1
+        elif sma_20 and current_price < sma_20:
+            sell_score += 1
+        else:
+            hold_score += 1
+        
+        # RSI
+        if rsi:
+            if rsi < 35:
+                buy_score += 1.5
+            elif rsi > 65:
+                sell_score += 1.5
+            else:
+                hold_score += 0.5
+        
+        # MACD
+        if macd and signal:
+            if macd > signal and macd > 0:
+                buy_score += 1
+            elif macd < signal and macd < 0:
+                sell_score += 1
+            else:
+                hold_score += 0.5
+        
+        # Kịch bản
+        bullish_scenarios = sum(prob for scenario, prob in scenarios.items() if "Tăng" in scenario)
+        bearish_scenarios = sum(prob for scenario, prob in scenarios.items() if "Giảm" in scenario)
+        
+        if bullish_scenarios > 0.4:
+            buy_score += 1
+        elif bearish_scenarios > 0.4:
+            sell_score += 1
+        else:
+            hold_score += 0.5
+        
+        # Quyết định cuối cùng
+        total_score = buy_score + sell_score + hold_score
+        if total_score == 0:
+            return PredictionDecision.HOLD, 0.3, "Không đủ tín hiệu"
+        
+        buy_prob = buy_score / total_score
+        sell_prob = sell_score / total_score
+        hold_prob = hold_score / total_score
+        
+        if buy_prob > sell_prob and buy_prob > hold_prob:
+            confidence = min(buy_prob + 0.2, 0.9)
+            rationale = f"Tín hiệu mua mạnh (RSI: {rsi:.1f}, MACD: {'+' if macd and signal and macd > signal else '-'})"
+            return PredictionDecision.BUY_MORE, confidence, rationale
+        elif sell_prob > buy_prob and sell_prob > hold_prob:
+            confidence = min(sell_prob + 0.2, 0.9)
+            rationale = f"Tín hiệu bán mạnh (RSI: {rsi:.1f}, MACD: {'+' if macd and signal and macd > signal else '-'})"
+            return PredictionDecision.SELL, confidence, rationale
+        else:
+            confidence = min(hold_prob + 0.1, 0.7)
+            rationale = f"Tín hiệu trung tính (RSI: {rsi:.1f}, giá gần MA20)"
+            return PredictionDecision.HOLD, confidence, rationale
+    
+    @staticmethod
     async def predict(symbol: str) -> PredictionResult:
-        """Plug point: call your existing model/pipeline to decide action.
-
-        Replace this stub with a call into your advisor. For now, we return HOLD
-        with medium confidence.
-        """
-        # TODO: Integrate with your existing advisor decision output
-        return PredictionResult(
-            symbol=symbol,
-            decision=PredictionDecision.HOLD,
-            confidence=0.5,
-            rationale="Default placeholder decision; integrate your model here.",
-        )
+        """Dự đoán dựa trên phân tích kỹ thuật từ dữ liệu lịch sử"""
+        try:
+            # Lấy dữ liệu lịch sử
+            data = await PredictionEngine.get_historical_data(symbol, days=60)
+            if not data:
+                return PredictionResult(
+                    symbol=symbol,
+                    decision=PredictionDecision.HOLD,
+                    confidence=0.3,
+                    rationale="Không thể lấy dữ liệu lịch sử",
+                )
+            
+            # Phân tích tín hiệu kỹ thuật
+            signals = PredictionEngine.analyze_technical_signals(data)
+            if not signals:
+                return PredictionResult(
+                    symbol=symbol,
+                    decision=PredictionDecision.HOLD,
+                    confidence=0.3,
+                    rationale="Không đủ dữ liệu để tính toán chỉ báo kỹ thuật",
+                )
+            
+            # Tạo kịch bản
+            scenarios = PredictionEngine.generate_scenarios(signals)
+            
+            # Đưa ra quyết định
+            decision, confidence, rationale = PredictionEngine.make_decision(signals, scenarios)
+            
+            return PredictionResult(
+                symbol=symbol,
+                decision=decision,
+                confidence=confidence,
+                rationale=rationale,
+                scenarios=scenarios,
+                technical_signals=signals,
+            )
+            
+        except Exception as e:
+            return PredictionResult(
+                symbol=symbol,
+                decision=PredictionDecision.HOLD,
+                confidence=0.3,
+                rationale=f"Lỗi phân tích: {str(e)}",
+            )
 
 
 CREATE_TABLES_SQL = [
@@ -637,7 +1078,7 @@ async def analyze_and_notify(application: Application, user_id: int, chat_id: st
         await application.bot.send_message(chat_id=chat_id, text="Danh mục trống.")
         return
 
-    lines: List[str] = ["Kết quả phân tích danh mục:"]
+    lines: List[str] = ["📊 Kết quả phân tích danh mục:"]
     for symbol, qty, avg_cost in positions:
         price = await MarketData.get_price(symbol)
         pred = await PredictionEngine.predict(symbol)
@@ -646,8 +1087,15 @@ async def analyze_and_notify(application: Application, user_id: int, chat_id: st
         price_str = f"{price:.2f}" if price is not None else "N/A"
         pnl_val = (price - avg_cost) * qty if price is not None else None
         pnl_str = f"{pnl_val:.2f}" if pnl_val is not None else "N/A"
+        
+        # Thêm kịch bản dự đoán
+        scenario_text = ""
+        if pred.scenarios:
+            top_scenario = max(pred.scenarios.items(), key=lambda x: x[1])
+            scenario_text = f" | Kịch bản: {top_scenario[0]} ({top_scenario[1]*100:.0f}%)"
+        
         lines.append(
-            f"- {symbol}: {decision} (conf {conf_pct}%), Giá={price_str}, SL={qty:g}, Giá vốn={avg_cost:.2f}, Lãi/lỗ={pnl_str}"
+            f"- {symbol}: {decision} (conf {conf_pct}%), Giá={price_str}, SL={qty:g}, Giá vốn={avg_cost:.2f}, Lãi/lỗ={pnl_str}{scenario_text}"
         )
     await application.bot.send_message(chat_id=chat_id, text="\n".join(lines))
 
@@ -690,6 +1138,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/portfolio — xem danh mục\n"
         "/pnl — thống kê lãi lỗ theo giá hiện tại\n"
         "/analyze_now — phân tích ngay và gợi ý hành động\n"
+        "/predict <mã> — dự đoán giá với phân tích kỹ thuật chi tiết\n"
         "/reset — xóa toàn bộ dữ liệu danh mục (cần xác nhận)\n"
         "/confirm_reset — xác nhận xóa dữ liệu\n"
         "/cancel_reset — hủy yêu cầu xóa\n"
@@ -698,6 +1147,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "📊 Tracking tự động theo phiên VN (9:05, 15-30 phút, 14:35, 14:40)\n"
         "⛔ Stoploss: tự động theo dõi từng cổ phiếu\n"
         "🚀 Breakout: gợi ý mua thêm khi xác nhận\n"
+        "🔮 Dự đoán: phân tích kỹ thuật với kịch bản xác suất\n"
     )
     await update.message.reply_text(text)
 
@@ -829,6 +1279,60 @@ async def analyze_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.effective_user.id
     chat_id = str(update.effective_chat.id)
     await analyze_and_notify(context.application, user_id, chat_id)
+
+
+async def predict_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Dự đoán giá cho một cổ phiếu cụ thể"""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    if len(context.args) != 1:
+        await update.message.reply_text("Cú pháp: /predict <mã cổ phiếu>\nVí dụ: /predict VIC")
+        return
+    
+    symbol = context.args[0].upper().strip()
+    
+    # Gửi thông báo đang xử lý
+    processing_msg = await update.message.reply_text(f"🔍 Đang phân tích {symbol}...")
+    
+    try:
+        # Lấy dự đoán
+        pred = await PredictionEngine.predict(symbol)
+        
+        # Tạo thông báo chi tiết
+        lines = [f"📈 Dự đoán cho {symbol}:"]
+        lines.append(f"🎯 Quyết định: {pred.decision}")
+        lines.append(f"📊 Độ tin cậy: {pred.confidence*100:.1f}%")
+        lines.append(f"💡 Lý do: {pred.rationale}")
+        
+        # Thêm kịch bản
+        if pred.scenarios:
+            lines.append("\n🎲 Các kịch bản có thể:")
+            for scenario, prob in sorted(pred.scenarios.items(), key=lambda x: x[1], reverse=True):
+                lines.append(f"  • {scenario}: {prob*100:.1f}%")
+        
+        # Thêm tín hiệu kỹ thuật
+        if pred.technical_signals:
+            signals = pred.technical_signals
+            lines.append("\n📊 Chỉ báo kỹ thuật:")
+            if signals.get('current_price'):
+                lines.append(f"  • Giá hiện tại: {signals['current_price']:.2f}")
+            if signals.get('sma_20'):
+                lines.append(f"  • MA20: {signals['sma_20']:.2f}")
+            if signals.get('rsi'):
+                rsi_val = signals['rsi']
+                rsi_status = "Oversold" if rsi_val < 30 else "Overbought" if rsi_val > 70 else "Neutral"
+                lines.append(f"  • RSI: {rsi_val:.1f} ({rsi_status})")
+            if signals.get('macd') and signals.get('macd_signal'):
+                macd_trend = "Bullish" if signals['macd'] > signals['macd_signal'] else "Bearish"
+                lines.append(f"  • MACD: {macd_trend}")
+        
+        # Gửi kết quả
+        result_text = "\n".join(lines)
+        await processing_msg.edit_text(result_text)
+        
+    except Exception as e:
+        await processing_msg.edit_text(f"❌ Lỗi khi phân tích {symbol}: {str(e)}")
 
 
 # (Deprecated) set_schedule_cmd removed; use /track_on or /track_off instead
@@ -1021,6 +1525,7 @@ def main() -> None:
     application.add_handler(CommandHandler("portfolio", portfolio_cmd))
     application.add_handler(CommandHandler("pnl", pnl_cmd))
     application.add_handler(CommandHandler("analyze_now", analyze_now_cmd))
+    application.add_handler(CommandHandler("predict", predict_cmd))
     application.add_handler(CommandHandler("reset", reset_cmd))
     application.add_handler(CommandHandler("confirm_reset", confirm_reset_cmd))
     application.add_handler(CommandHandler("cancel_reset", cancel_reset_cmd))
