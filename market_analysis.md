@@ -1,6 +1,6 @@
 📊 **PHÂN TÍCH VĨ MÔ VÀ THỊ TRƯỜNG** (Cached - 2025-09-03)
 ============================================================
-🔄 *Dữ liệu được tái sử dụng từ cache để tối ưu hóa tài nguyên*
+🔄 *Dữ liệu được tái sử dụng từ cache để tối ưu hóa tài nguyên.  Lưu ý: Phân tích này dựa trên dữ liệu ngày 2025-09-03.  Để có phân tích cập nhật nhất cho ngày 2025-09-04, cần thực hiện phân tích mới với `force_refresh: true`.*
 
 📊 **PHÂN TÍCH VĨ MÔ VÀ THỊ TRƯỜNG TOÀN DIỆN** (2025-09-03)
 ============================================================
