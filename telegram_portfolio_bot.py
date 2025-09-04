@@ -3,6 +3,7 @@ import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, time, timezone, timedelta
+from zoneinfo import ZoneInfo
 from typing import List, Optional, Tuple, Dict, Any
 from enum import Enum
 from collections import deque
@@ -32,6 +33,9 @@ DB_PATH = (
 )
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 DEFAULT_CHAT_ID = os.getenv("DEFAULT_CHAT_ID")
+
+# Vietnam timezone for all scheduling
+VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 class MarketData:
@@ -1144,7 +1148,8 @@ async def summarize_eod_and_outlook(app: Application, user_id: int, chat_id: str
 
 
 def _vn_time(hh: int, mm: int) -> time:
-    return time(hour=hh, minute=mm)
+    # tz-aware time for Vietnam timezone
+    return time(hour=hh, minute=mm, tzinfo=VN_TZ)
 
 
 def _track_job_name(user_id: int, tag: str) -> str:
@@ -1223,9 +1228,9 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
         # Job data to pass to callback
         job_data = {'user_id': user_id, 'chat_id': chat_id}
         
-        # Get current time to determine which jobs to schedule
-        now = datetime.now()
-        current_time = now.time()
+        # Get current VN time to determine which jobs to schedule
+        now = datetime.now(VN_TZ)
+        current_time = now.timetz()
         
         print(f"Current time: {current_time}, scheduling jobs for user {user_id}")
 
@@ -1243,66 +1248,89 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
             jobs_scheduled += 1
             print(f"Scheduled ATO job for user {user_id}")
         
-        # 09:15–10:30: every 5 minutes - only if current time is before 10:30
+        # 09:15–10:30: every 5 minutes
         if current_time < _vn_time(10, 30):
+            start_dt = datetime.combine(now.date(), _vn_time(9, 15))
+            end_dt = datetime.combine(now.date(), _vn_time(10, 30))
+            if now < start_dt:
+                first_dt = start_dt
+            else:
+                # if already in window, trigger soon
+                first_dt = now + timedelta(seconds=2)
             app.job_queue.run_repeating(
                 name=_track_job_name(user_id, "morning_5m"),
                 interval=timedelta(minutes=5),
-                first=_vn_time(9, 15),
-                last=_vn_time(10, 30),
+                first=first_dt,
+                last=end_dt,
                 callback=tracking_callback,
                 data={**job_data, 'job_type': 'check_positions'},
             )
             jobs_scheduled += 1
-            print(f"Scheduled morning job for user {user_id}")
+            print(f"Scheduled morning job for user {user_id} (first={first_dt}, last={end_dt})")
         
-        # 10:30–13:30: every 5 minutes - only if current time is before 13:30
+        # 10:30–13:30: every 5 minutes
         if current_time < _vn_time(13, 30):
+            start_dt = datetime.combine(now.date(), _vn_time(10, 30))
+            end_dt = datetime.combine(now.date(), _vn_time(13, 30))
+            if now < start_dt:
+                first_dt = start_dt
+            else:
+                first_dt = now + timedelta(seconds=2)
             app.job_queue.run_repeating(
                 name=_track_job_name(user_id, "mid_5m"),
                 interval=timedelta(minutes=5),
-                first=_vn_time(10, 30),
-                last=_vn_time(13, 30),
+                first=first_dt,
+                last=end_dt,
                 callback=tracking_callback,
                 data={**job_data, 'job_type': 'check_positions'},
             )
             jobs_scheduled += 1
-            print(f"Scheduled mid job for user {user_id}")
+            print(f"Scheduled mid job for user {user_id} (first={first_dt}, last={end_dt})")
         
-        # 13:30–14:30: every 5 minutes - only if current time is before 14:30
+        # 13:30–14:30: every 5 minutes
         if current_time < _vn_time(14, 30):
+            start_dt = datetime.combine(now.date(), _vn_time(13, 30))
+            end_dt = datetime.combine(now.date(), _vn_time(14, 30))
+            if now < start_dt:
+                first_dt = start_dt
+            else:
+                first_dt = now + timedelta(seconds=2)
             app.job_queue.run_repeating(
                 name=_track_job_name(user_id, "late_5m"),
                 interval=timedelta(minutes=5),
-                first=_vn_time(13, 30),
-                last=_vn_time(14, 30),
+                first=first_dt,
+                last=end_dt,
                 callback=tracking_callback,
                 data={**job_data, 'job_type': 'check_positions'},
             )
             jobs_scheduled += 1
-            print(f"Scheduled late job for user {user_id}")
+            print(f"Scheduled late job for user {user_id} (first={first_dt}, last={end_dt})")
         
-        # 14:35 ATC (once) - only if current time is before 14:35
+        # 14:35 ATC (once)
         if current_time < _vn_time(14, 35):
-            app.job_queue.run_daily(
+            atc_dt = datetime.combine(now.date(), _vn_time(14, 35))
+            # Use one-off for same-day to avoid daily edge cases
+            app.job_queue.run_once(
                 name=_track_job_name(user_id, "atc_once"),
-                time=_vn_time(14, 35),
+                when=atc_dt,
                 callback=tracking_callback,
                 data={**job_data, 'job_type': 'check_positions'},
             )
             jobs_scheduled += 1
-            print(f"Scheduled ATC job for user {user_id}")
+            print(f"Scheduled ATC job for user {user_id} at {atc_dt}")
         
-        # 14:40 Summary (once) - only if current time is before 14:40
+        # 14:40 Summary (once)
         if current_time < _vn_time(14, 40):
-            app.job_queue.run_daily(
+            sum_dt = datetime.combine(now.date(), _vn_time(14, 40))
+            # Use one-off for same-day to avoid daily edge cases
+            app.job_queue.run_once(
                 name=_track_job_name(user_id, "summary_once"),
-                time=_vn_time(14, 40),
+                when=sum_dt,
                 callback=tracking_callback,
                 data={**job_data, 'job_type': 'summary'},
             )
             jobs_scheduled += 1
-            print(f"Scheduled summary job for user {user_id}")
+            print(f"Scheduled summary job for user {user_id} at {sum_dt}")
         
         print(f"Schedule tracking: Successfully scheduled {jobs_scheduled} jobs for user {user_id}")
     except Exception as e:
@@ -2010,6 +2038,9 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     chat_id = update.effective_chat.id
     
     try:
+        # Ensure we store chat_id for this user (needed by scheduler)
+        await upsert_user(user_id, str(chat_id))
+
         # Enable tracking with default settings (sl_pct will be overridden by individual stock stoploss)
         await set_tracking_settings(user_id, enabled=True, sl_pct=0.05, tp_pct=0.10, vol_ma_days=20)
         print(f"Track ON: Enabled tracking for user {user_id}")
@@ -2104,6 +2135,57 @@ async def track_config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 
+async def track_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show scheduled tracking jobs and next run times for current user."""
+    user_id = update.effective_user.id
+    jq = context.application.job_queue
+    if jq is None:
+        await update.message.reply_text("JobQueue is None")
+        return
+    jobs = [job for job in jq.jobs() if job.name and job.name.startswith(f"track_") and str(user_id) in job.name]
+    if not jobs:
+        await update.message.reply_text("Không có tracking job nào đang chạy.")
+        return
+    lines = ["Các tracking jobs:"]
+    for job in jobs:
+        next_run = getattr(job, "next_t", None) or getattr(job, "next_run_time", None)
+        lines.append(f"- {job.name} | next: {next_run}")
+    await update.message.reply_text("\n".join(lines))
+
+
+async def track_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Schedule an immediate one-off tracking run to verify execution."""
+    user_id = update.effective_user.id
+    chat_id = str(update.effective_chat.id)
+    jq = context.application.job_queue
+    if jq is None:
+        await update.message.reply_text("JobQueue is None")
+        return
+    # schedule once after 2 seconds
+    data = {'user_id': user_id, 'chat_id': chat_id, 'job_type': 'check_positions'}
+    when = datetime.now(VN_TZ) + timedelta(seconds=2)
+    jq.run_once(callback=tracking_callback, when=when, name=_track_job_name(user_id, "immediate"), data=data)
+    await update.message.reply_text("Đã schedule chạy thử sau 2 giây.")
+
+
+async def track_ping_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send a test message to verify the bot can send messages to this chat."""
+    await update.message.reply_text("Pong ✅ Bot có thể gửi tin nhắn.")
+
+
+async def track_now_summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Schedule an immediate one-off SUMMARY run to verify EOD callback."""
+    user_id = update.effective_user.id
+    chat_id = str(update.effective_chat.id)
+    jq = context.application.job_queue
+    if jq is None:
+        await update.message.reply_text("JobQueue is None")
+        return
+    data = {'user_id': user_id, 'chat_id': chat_id, 'job_type': 'summary'}
+    when = datetime.now(VN_TZ) + timedelta(seconds=2)
+    jq.run_once(callback=tracking_callback, when=when, name=_track_job_name(user_id, "immediate_summary"), data=data)
+    await update.message.reply_text("Đã schedule chạy thử SUMMARY sau 2 giây.")
+
 async def ui_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Launch Streamlit UI in the background and send the URL to the user."""
     try:
@@ -2192,17 +2274,13 @@ async def _post_init(application: Application) -> None:
     
     # Ensure JobQueue is started
     try:
-        if application.job_queue is None:
-            print("JobQueue is None, trying to initialize...")
-            # Try to manually initialize job queue
-            application.job_queue = JobQueue()
-            print("JobQueue manually initialized")
-        
-        if application.job_queue:
-            await application.job_queue.start()
-            print("JobQueue started successfully")
+        jq = application.job_queue
+        if jq is None:
+            print("Warning: Application.job_queue is None; cannot start scheduler.")
         else:
-            print("Warning: JobQueue is still None after initialization")
+            # In PTB v20+, run_polling starts JobQueue automatically, but starting here is safe
+            await jq.start()
+            print("JobQueue started successfully")
     except Exception as e:
         print(f"Error starting JobQueue: {e}")
     
@@ -2218,7 +2296,7 @@ def main() -> None:
     application: Application = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
-        .defaults(Defaults())
+        .defaults(Defaults(tzinfo=VN_TZ))
         .post_init(_post_init)
         .build()
     )
@@ -2242,6 +2320,10 @@ def main() -> None:
     application.add_handler(CommandHandler("track_on", track_on_cmd))
     application.add_handler(CommandHandler("track_off", track_off_cmd))
     application.add_handler(CommandHandler("track_config", track_config_cmd))
+    application.add_handler(CommandHandler("track_status", track_status_cmd))
+    application.add_handler(CommandHandler("track_now", track_now_cmd))
+    application.add_handler(CommandHandler("track_ping", track_ping_cmd))
+    application.add_handler(CommandHandler("track_now_summary", track_now_summary_cmd))
 
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 

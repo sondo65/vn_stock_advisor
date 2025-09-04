@@ -30,10 +30,11 @@ def render_optimized_stock_scanner():
         return
     
     # Create tabs for different scanner modes
-    scanner_tab1, scanner_tab2, scanner_tab3 = st.tabs([
+    scanner_tab1, scanner_tab2, scanner_tab3, scanner_tab4 = st.tabs([
         "🔍 Quét Nhanh", 
         "🎯 Lọc Cơ Hội", 
-        "📊 Xếp Hạng Ưu Tiên"
+        "📊 Xếp Hạng Ưu Tiên",
+        "🧮 Lọc Cơ Bản"
     ])
     
     with scanner_tab1:
@@ -44,6 +45,9 @@ def render_optimized_stock_scanner():
     
     with scanner_tab3:
         render_priority_ranking()
+    
+    with scanner_tab4:
+        render_fundamental_filter()
 
 def render_lightweight_scanner():
     """Render lightweight scanner interface."""
@@ -398,6 +402,133 @@ def render_priority_ranking():
             
             except Exception as e:
                 st.error(f"❌ Lỗi xếp hạng: {e}")
+
+def render_fundamental_filter():
+    """Render fundamental filtering UI that uses find_potential_stocks."""
+    st.markdown("#### 🧮 Lọc Cơ Bản (Fundamental)")
+    st.info("Áp dụng bộ tiêu chí cơ bản: P/E, P/B, ROE/ROA, EPS dương liên tiếp, nợ/tài sản, cổ tức, biên lợi nhuận, thanh khoản, beta.")
+
+    # Import finder lazily
+    try:
+        from src.vn_stock_advisor.scanner import find_potential_stocks, DEFAULT_CRITERIA
+        FINDER_AVAILABLE = True
+    except Exception as e:
+        st.error(f"❌ Không thể tải module lọc cơ bản: {e}")
+        FINDER_AVAILABLE = False
+        return
+
+    # Stock universe selection
+    col1, col2 = st.columns(2)
+    with col1:
+        universe = st.selectbox(
+            "🎯 Phạm vi",
+            ["VN30", "HNX30", "Danh sách tùy chỉnh"],
+            key="fund_universe"
+        )
+    with col2:
+        run_top_n = st.selectbox("📊 Top kết quả", [10, 20, 30, 50], index=0, key="fund_top_n")
+
+    custom_stocks = None
+    if universe == "Danh sách tùy chỉnh":
+        custom_stocks = st.text_area(
+            "📝 Nhập mã cổ phiếu (cách nhau bởi dấu phẩy)",
+            placeholder="VIC, VHM, HPG, VCB, MSN",
+            key="fund_custom_stocks"
+        )
+
+    # Criteria controls
+    st.markdown("##### ⚙️ Thiết lập tiêu chí")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        pe_max = st.number_input("P/E tối đa", 0.0, 50.0, float(DEFAULT_CRITERIA["pe_max"]), 0.1, key="pe_max")
+        pb_max = st.number_input("P/B tối đa", 0.0, 10.0, float(DEFAULT_CRITERIA["pb_max"]), 0.1, key="pb_max")
+        eps_years = st.number_input("EPS dương liên tiếp (năm)", 1, 5, int(DEFAULT_CRITERIA["eps_growth_years"]), 1, key="eps_years")
+    with c2:
+        roe_min = st.number_input("ROE tối thiểu (%)", 0.0, 40.0, float(DEFAULT_CRITERIA["roe_min"]), 0.5, key="roe_min")
+        roa_min = st.number_input("ROA tối thiểu (%)", 0.0, 20.0, float(DEFAULT_CRITERIA["roa_min"]), 0.5, key="roa_min")
+        gross_min = st.number_input("Gross Margin tối thiểu (%)", 0.0, 80.0, float(DEFAULT_CRITERIA["gross_margin_min"]), 0.5, key="gross_min")
+    with c3:
+        debt_pct = st.number_input("Nợ/Tài sản tối đa (%)", 0.0, 100.0, float(DEFAULT_CRITERIA["debt_assets_max_pct"]), 1.0, key="debt_pct")
+        curr_ratio = st.number_input("Current Ratio tối thiểu", 0.0, 5.0, float(DEFAULT_CRITERIA["current_ratio_min"]), 0.1, key="curr_ratio")
+        beta_max = st.number_input("Beta tối đa", 0.0, 3.0, float(DEFAULT_CRITERIA["beta_max"]), 0.05, key="beta_max")
+
+    c4, c5 = st.columns(2)
+    with c4:
+        div_years = st.number_input("Cổ tức tiền mặt đều đặn (năm)", 0, 10, int(DEFAULT_CRITERIA["dividend_years_min"]), 1, key="div_years")
+    with c5:
+        avg20_vol = st.number_input("Thanh khoản TB 20 ngày (cp/ngày)", 0, 2_000_000, int(DEFAULT_CRITERIA["avg20d_volume_min"]), 10_000, key="avg20_vol")
+
+    # Run button
+    if st.button("🧮 Chạy lọc cơ bản", type="primary", use_container_width=True, key="run_fund_filter"):
+        # Build stock list
+        if universe == "VN30":
+            stock_list = [
+                'VIC', 'VHM', 'VRE', 'VCB', 'BID', 'CTG', 'TCB', 'MBB', 'ACB', 'TPB',
+                'HPG', 'HSG', 'NKG', 'GVR', 'PLX', 'POW', 'GAS', 'VNM', 'MSN', 'MWG',
+                'FPT', 'VJC', 'HVN', 'SAB', 'BVH', 'CTD', 'PDR', 'KDH', 'DXG', 'STB'
+            ]
+        elif universe == "HNX30":
+            stock_list = [
+                'SHB', 'PVS', 'CEO', 'TNG', 'VCS', 'IDC', 'NVB', 'PVB', 'THD', 'DTD',
+                'MBS', 'BVS', 'PVC', 'VIG', 'NDN', 'VC3', 'PVI', 'TIG', 'VND', 'HUT'
+            ]
+        else:
+            if not custom_stocks:
+                st.error("❌ Vui lòng nhập danh sách mã cổ phiếu")
+                return
+            stock_list = [s.strip().upper() for s in custom_stocks.split(',') if s.strip()]
+            if not stock_list:
+                st.error("❌ Danh sách cổ phiếu trống")
+                return
+
+        criteria = {
+            "pe_max": pe_max,
+            "pb_max": pb_max,
+            "eps_growth_years": eps_years,
+            "roe_min": roe_min,
+            "roa_min": roa_min,
+            "gross_margin_min": gross_min,
+            "debt_assets_max_pct": debt_pct,
+            "current_ratio_min": curr_ratio,
+            "beta_max": beta_max,
+            "dividend_years_min": div_years,
+            "avg20d_volume_min": avg20_vol,
+        }
+
+        with st.spinner("🔄 Đang lọc theo tiêu chí cơ bản..."):
+            try:
+                df = find_potential_stocks(stock_list, criteria)
+                if df is None or df.empty:
+                    st.warning("⚠️ Không có kết quả phù hợp")
+                    return
+
+                # Limit to top N
+                df = df.head(run_top_n)
+
+                # Display
+                st.success(f"✅ Tìm thấy {len(df)} cổ phiếu phù hợp")
+                st.dataframe(df, width='stretch', hide_index=True)
+
+                # Download options
+                colx, coly = st.columns(2)
+                with colx:
+                    csv_data = df.to_csv(index=False)
+                    st.download_button(
+                        "💾 Tải CSV",
+                        data=csv_data,
+                        file_name="fundamental_filter_results.csv",
+                        mime="text/csv"
+                    )
+                with coly:
+                    excel_buf = df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        "📄 Tải dữ liệu (CSV UTF-8)",
+                        data=excel_buf,
+                        file_name="fundamental_filter_results_utf8.csv",
+                        mime="text/csv"
+                    )
+            except Exception as e:
+                st.error(f"❌ Lỗi lọc cơ bản: {e}")
 
 def display_lightweight_results(results):
     """Display lightweight scanner results."""

@@ -69,6 +69,11 @@ from .industry_stock_advisor import (
     IndustryRecommendation
 )
 
+from .potential_stock_finder import (
+    find_potential_stocks,
+    DEFAULT_CRITERIA
+)
+
 # Convenience functions for quick usage
 
 def suggest_industry_stocks(industry: str, max_stocks: int = 10, min_score: float = 7.0) -> list:
@@ -284,4 +289,8 @@ __all__ = [
     "quick_scan_and_rank",
     "find_opportunities",
     "get_analysis_priorities"
+    ,
+    # Fundamental finder
+    "find_potential_stocks",
+    "DEFAULT_CRITERIA"
 ]
