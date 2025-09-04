@@ -1156,7 +1156,7 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
         return
     enabled, _, _, _ = await get_tracking_settings(user_id)
     # Remove old tracking jobs
-    for tag in ["ato_once", "morning_15m", "mid_30m", "late_15m", "atc_once", "summary_once"]:
+    for tag in ["ato_once", "morning_5m", "mid_5m", "late_5m", "atc_once", "summary_once"]:
         for job in app.job_queue.get_jobs_by_name(_track_job_name(user_id, tag)):
             job.schedule_removal()
     if not enabled:
@@ -1168,26 +1168,26 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
         time=_vn_time(9, 5),
         callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
     )
-    # 09:15–10:30: every 15 minutes
+    # 09:15–10:30: every 5 minutes
     app.job_queue.run_repeating(
-        name=_track_job_name(user_id, "morning_15m"),
-        interval=timedelta(minutes=15),
+        name=_track_job_name(user_id, "morning_5m"),
+        interval=timedelta(minutes=5),
         first=_vn_time(9, 15),
         last=_vn_time(10, 30),
         callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
     )
-    # 10:30–13:30: every 30 minutes
+    # 10:30–13:30: every 5 minutes
     app.job_queue.run_repeating(
-        name=_track_job_name(user_id, "mid_30m"),
-        interval=timedelta(minutes=30),
+        name=_track_job_name(user_id, "mid_5m"),
+        interval=timedelta(minutes=5),
         first=_vn_time(10, 30),
         last=_vn_time(13, 30),
         callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
     )
-    # 13:30–14:30: every 15 minutes
+    # 13:30–14:30: every 5 minutes
     app.job_queue.run_repeating(
-        name=_track_job_name(user_id, "late_15m"),
-        interval=timedelta(minutes=15),
+        name=_track_job_name(user_id, "late_5m"),
+        interval=timedelta(minutes=5),
         first=_vn_time(13, 30),
         last=_vn_time(14, 30),
         callback=lambda ctx: asyncio.create_task(check_positions_and_alert(app, user_id, chat_id)),
@@ -1910,9 +1910,9 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "✅ **Tracking đã được bật!**\n\n"
         "Bot sẽ tự động theo dõi portfolio của bạn:\n"
         "• 09:05 - ATO check\n"
-        "• 09:15-10:30 - Mỗi 15 phút\n"
-        "• 10:30-13:30 - Mỗi 30 phút\n"
-        "• 13:30-14:30 - Mỗi 15 phút\n"
+        "• 09:15-10:30 - Mỗi 5 phút\n"
+        "• 10:30-13:30 - Mỗi 5 phút\n"
+        "• 13:30-14:30 - Mỗi 5 phút\n"
         "• 14:35 - ATC check\n"
         "• 14:40 - Tóm tắt cuối ngày\n\n"
         "Sử dụng `/track_config` để tùy chỉnh cài đặt.",
@@ -1928,7 +1928,7 @@ async def track_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await set_tracking_settings(user_id, enabled=False, sl_pct=0.05, tp_pct=0.10, vol_ma_days=20)
     
     # Remove tracking jobs
-    for tag in ["ato_once", "morning_15m", "mid_30m", "late_15m", "atc_once", "summary_once"]:
+    for tag in ["ato_once", "morning_5m", "mid_5m", "late_5m", "atc_once", "summary_once"]:
         for job in context.application.job_queue.get_jobs_by_name(_track_job_name(user_id, tag)):
             job.schedule_removal()
     
@@ -1955,9 +1955,9 @@ async def track_config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"**Volume MA:** {vol_ma_days} ngày\n\n"
         f"**Lịch theo dõi:**\n"
         f"• 09:05 - ATO check\n"
-        f"• 09:15-10:30 - Mỗi 15 phút\n"
-        f"• 10:30-13:30 - Mỗi 30 phút\n"
-        f"• 13:30-14:30 - Mỗi 15 phút\n"
+        f"• 09:15-10:30 - Mỗi 5 phút\n"
+        f"• 10:30-13:30 - Mỗi 5 phút\n"
+        f"• 13:30-14:30 - Mỗi 5 phút\n"
         f"• 14:35 - ATC check\n"
         f"• 14:40 - Tóm tắt cuối ngày\n\n"
         f"**Commands:**\n"
