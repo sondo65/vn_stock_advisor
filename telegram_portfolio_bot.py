@@ -101,6 +101,12 @@ class PredictionDecision(str, Enum):
     SELL = "SELL"
 
 
+class InvestmentStyle(str, Enum):
+    SHORT_TERM = "SHORT_TERM"  # Trading T+, 1-2 weeks
+    MEDIUM_TERM = "MEDIUM_TERM"  # 1-6 months
+    LONG_TERM = "LONG_TERM"  # 6+ months, value investing
+
+
 class PredictionResult(BaseModel):
     symbol: str
     decision: PredictionDecision
@@ -108,6 +114,8 @@ class PredictionResult(BaseModel):
     rationale: Optional[str] = None
     scenarios: Optional[Dict[str, float]] = None  # Kịch bản với xác suất
     technical_signals: Optional[Dict[str, Any]] = None  # Tín hiệu kỹ thuật
+    investment_style: Optional[InvestmentStyle] = None  # Phong cách đầu tư
+    timeframe: Optional[str] = None  # Khung thời gian phân tích
 
 
 class TechnicalIndicators:
@@ -256,6 +264,41 @@ class TechnicalIndicators:
 
 class PredictionEngine:
     @staticmethod
+    def get_data_period_for_style(style: InvestmentStyle) -> int:
+        """Get the number of days to fetch data based on investment style."""
+        if style == InvestmentStyle.SHORT_TERM:
+            return 90  # 3 months for short-term trading
+        elif style == InvestmentStyle.MEDIUM_TERM:
+            return 365  # 1 year for medium-term
+        else:  # LONG_TERM
+            return 1095  # 3 years for long-term value investing
+    
+    @staticmethod
+    def get_indicators_for_style(style: InvestmentStyle) -> Dict[str, int]:
+        """Get technical indicator periods based on investment style."""
+        if style == InvestmentStyle.SHORT_TERM:
+            return {
+                'sma_short': 5, 'sma_medium': 10, 'sma_long': 20,
+                'ema_short': 5, 'ema_medium': 10, 'ema_long': 20,
+                'rsi_period': 14, 'macd_fast': 8, 'macd_slow': 17, 'macd_signal': 9,
+                'bb_period': 20, 'bb_std': 2, 'atr_period': 14
+            }
+        elif style == InvestmentStyle.MEDIUM_TERM:
+            return {
+                'sma_short': 20, 'sma_medium': 50, 'sma_long': 100,
+                'ema_short': 20, 'ema_medium': 50, 'ema_long': 100,
+                'rsi_period': 14, 'macd_fast': 12, 'macd_slow': 26, 'macd_signal': 9,
+                'bb_period': 20, 'bb_std': 2, 'atr_period': 14
+            }
+        else:  # LONG_TERM
+            return {
+                'sma_short': 50, 'sma_medium': 100, 'sma_long': 200,
+                'ema_short': 50, 'ema_medium': 100, 'ema_long': 200,
+                'rsi_period': 21, 'macd_fast': 12, 'macd_slow': 26, 'macd_signal': 9,
+                'bb_period': 50, 'bb_std': 2, 'atr_period': 21
+            }
+
+    @staticmethod
     async def get_historical_data(symbol: str, days: int = 60) -> Optional[Dict[str, List[float]]]:
         """Lấy dữ liệu lịch sử từ vnstock"""
         try:
@@ -306,8 +349,8 @@ class PredictionEngine:
         return None
     
     @staticmethod
-    def analyze_technical_signals(data: Dict[str, List[float]]) -> Dict[str, Any]:
-        """Phân tích tín hiệu kỹ thuật từ dữ liệu giá"""
+    def analyze_technical_signals(data: Dict[str, List[float]], style: InvestmentStyle = InvestmentStyle.MEDIUM_TERM) -> Dict[str, Any]:
+        """Phân tích tín hiệu kỹ thuật từ dữ liệu giá theo phong cách đầu tư"""
         closes = data['close']
         highs = data['high']
         lows = data['low']
@@ -316,18 +359,29 @@ class PredictionEngine:
         if len(closes) < 20:
             return {}
         
+        # Lấy thông số chỉ báo theo phong cách đầu tư
+        indicators = PredictionEngine.get_indicators_for_style(style)
+        
         # Tính các chỉ báo
-        sma_20 = TechnicalIndicators.sma(closes, 20)
-        sma_50 = TechnicalIndicators.sma(closes, 50)
-        rsi = TechnicalIndicators.rsi(closes, 14)
-        macd_data = TechnicalIndicators.macd(closes)
-        bb_data = TechnicalIndicators.bollinger_bands(closes, 20)
-        atr = TechnicalIndicators.atr(highs, lows, closes, 14)
+        sma_short = TechnicalIndicators.sma(closes, indicators['sma_short'])
+        sma_medium = TechnicalIndicators.sma(closes, indicators['sma_medium'])
+        sma_long = TechnicalIndicators.sma(closes, indicators['sma_long'])
+        ema_short = TechnicalIndicators.ema(closes, indicators['ema_short'])
+        ema_medium = TechnicalIndicators.ema(closes, indicators['ema_medium'])
+        ema_long = TechnicalIndicators.ema(closes, indicators['ema_long'])
+        rsi = TechnicalIndicators.rsi(closes, indicators['rsi_period'])
+        macd_data = TechnicalIndicators.macd(closes, indicators['macd_fast'], indicators['macd_slow'], indicators['macd_signal'])
+        bb_data = TechnicalIndicators.bollinger_bands(closes, indicators['bb_period'], indicators['bb_std'])
+        atr = TechnicalIndicators.atr(highs, lows, closes, indicators['atr_period'])
         
         # Lấy giá trị cuối cùng
         current_price = closes[-1]
-        sma_20_val = sma_20[-1] if sma_20[-1] is not None else None
-        sma_50_val = sma_50[-1] if sma_50[-1] is not None else None
+        sma_short_val = sma_short[-1] if sma_short[-1] is not None else None
+        sma_medium_val = sma_medium[-1] if sma_medium[-1] is not None else None
+        sma_long_val = sma_long[-1] if sma_long[-1] is not None else None
+        ema_short_val = ema_short[-1] if ema_short[-1] is not None else None
+        ema_medium_val = ema_medium[-1] if ema_medium[-1] is not None else None
+        ema_long_val = ema_long[-1] if ema_long[-1] is not None else None
         rsi_val = rsi[-1] if rsi[-1] is not None else None
         macd_val = macd_data['macd'][-1] if macd_data['macd'][-1] is not None else None
         signal_val = macd_data['signal'][-1] if macd_data['signal'][-1] is not None else None
@@ -338,8 +392,12 @@ class PredictionEngine:
         # Phân tích tín hiệu
         signals = {
             'current_price': current_price,
-            'sma_20': sma_20_val,
-            'sma_50': sma_50_val,
+            'sma_short': sma_short_val,
+            'sma_medium': sma_medium_val,
+            'sma_long': sma_long_val,
+            'ema_short': ema_short_val,
+            'ema_medium': ema_medium_val,
+            'ema_long': ema_long_val,
             'rsi': rsi_val,
             'macd': macd_val,
             'macd_signal': signal_val,
@@ -347,7 +405,8 @@ class PredictionEngine:
             'bb_lower': bb_lower,
             'atr': atr_val,
             'volume_avg': sum(volumes[-10:]) / 10 if len(volumes) >= 10 else None,
-            'volume_current': volumes[-1] if volumes else None
+            'volume_current': volumes[-1] if volumes else None,
+            'investment_style': style.value
         }
         
         return signals
@@ -356,14 +415,16 @@ class PredictionEngine:
     def generate_scenarios(signals: Dict[str, Any]) -> Dict[str, float]:
         """Tạo các kịch bản dự đoán với xác suất"""
         current_price = signals.get('current_price', 0)
-        sma_20 = signals.get('sma_20')
-        sma_50 = signals.get('sma_50')
+        sma_short = signals.get('sma_short')
+        sma_medium = signals.get('sma_medium')
+        sma_long = signals.get('sma_long')
         rsi = signals.get('rsi')
         macd = signals.get('macd')
         signal = signals.get('macd_signal')
         bb_upper = signals.get('bb_upper')
         bb_lower = signals.get('bb_lower')
         atr = signals.get('atr')
+        investment_style = signals.get('investment_style', 'MEDIUM_TERM')
         
         if not current_price or not atr:
             return {"Không đủ dữ liệu": 1.0}
@@ -373,23 +434,37 @@ class PredictionEngine:
         bearish_score = 0
         neutral_score = 0
         
-        # Phân tích xu hướng
-        if sma_20 and sma_50:
-            if current_price > sma_20 > sma_50:
-                bullish_score += 2
-            elif current_price < sma_20 < sma_50:
-                bearish_score += 2
+        # Phân tích xu hướng (sử dụng MA phù hợp với timeframe)
+        if sma_short and sma_medium and sma_long:
+            if current_price > sma_short > sma_medium > sma_long:
+                bullish_score += 3  # Xu hướng tăng mạnh
+            elif current_price > sma_short > sma_medium:
+                bullish_score += 2  # Xu hướng tăng
+            elif current_price < sma_short < sma_medium < sma_long:
+                bearish_score += 3  # Xu hướng giảm mạnh
+            elif current_price < sma_short < sma_medium:
+                bearish_score += 2  # Xu hướng giảm
             else:
                 neutral_score += 1
         
-        # Phân tích RSI
+        # Phân tích RSI (điều chỉnh ngưỡng theo timeframe)
         if rsi:
-            if rsi < 30:  # Oversold
-                bullish_score += 1.5
-            elif rsi > 70:  # Overbought
-                bearish_score += 1.5
-            elif 40 <= rsi <= 60:
-                neutral_score += 1
+            if investment_style == 'SHORT_TERM':
+                # Ngắn hạn: nhạy cảm hơn
+                if rsi < 25:
+                    bullish_score += 2
+                elif rsi > 75:
+                    bearish_score += 2
+                elif 35 <= rsi <= 65:
+                    neutral_score += 1
+            else:
+                # Trung/dài hạn: ổn định hơn
+                if rsi < 30:
+                    bullish_score += 1.5
+                elif rsi > 70:
+                    bearish_score += 1.5
+                elif 40 <= rsi <= 60:
+                    neutral_score += 1
         
         # Phân tích MACD
         if macd and signal:
@@ -418,18 +493,31 @@ class PredictionEngine:
         bearish_prob = bearish_score / total_score
         neutral_prob = neutral_score / total_score
         
-        # Tạo kịch bản chi tiết
+        # Tạo kịch bản chi tiết theo timeframe
         scenarios = {}
         
+        # Điều chỉnh target theo investment style
+        if investment_style == 'SHORT_TERM':
+            atr_multiplier_strong = 1.0
+            atr_multiplier_weak = 0.3
+        elif investment_style == 'MEDIUM_TERM':
+            atr_multiplier_strong = 1.5
+            atr_multiplier_weak = 0.5
+        else:  # LONG_TERM
+            atr_multiplier_strong = 2.0
+            atr_multiplier_weak = 0.7
+        
         if bullish_prob > 0.3:
-            target_up = current_price + (atr * 1.5)
-            scenarios[f"Tăng mạnh (+{((target_up/current_price-1)*100):.1f}%)"] = bullish_prob * 0.6
-            scenarios[f"Tăng nhẹ (+{((current_price + atr*0.5)/current_price-1)*100:.1f}%)"] = bullish_prob * 0.4
+            target_up_strong = current_price + (atr * atr_multiplier_strong)
+            target_up_weak = current_price + (atr * atr_multiplier_weak)
+            scenarios[f"Tăng mạnh (+{((target_up_strong/current_price-1)*100):.1f}%)"] = bullish_prob * 0.6
+            scenarios[f"Tăng nhẹ (+{((target_up_weak/current_price-1)*100):.1f}%)"] = bullish_prob * 0.4
         
         if bearish_prob > 0.3:
-            target_down = current_price - (atr * 1.5)
-            scenarios[f"Giảm mạnh ({((target_down/current_price-1)*100):.1f}%)"] = bearish_prob * 0.6
-            scenarios[f"Giảm nhẹ ({((current_price - atr*0.5)/current_price-1)*100:.1f}%)"] = bearish_prob * 0.4
+            target_down_strong = current_price - (atr * atr_multiplier_strong)
+            target_down_weak = current_price - (atr * atr_multiplier_weak)
+            scenarios[f"Giảm mạnh ({((target_down_strong/current_price-1)*100):.1f}%)"] = bearish_prob * 0.6
+            scenarios[f"Giảm nhẹ ({((target_down_weak/current_price-1)*100):.1f}%)"] = bearish_prob * 0.4
         
         if neutral_prob > 0.2:
             scenarios[f"Sideway (±{((atr*0.3)/current_price*100):.1f}%)"] = neutral_prob
@@ -445,10 +533,13 @@ class PredictionEngine:
     def make_decision(signals: Dict[str, Any], scenarios: Dict[str, float]) -> Tuple[PredictionDecision, float, str]:
         """Đưa ra quyết định dựa trên tín hiệu kỹ thuật"""
         current_price = signals.get('current_price', 0)
-        sma_20 = signals.get('sma_20')
+        sma_short = signals.get('sma_short')
+        sma_medium = signals.get('sma_medium')
+        sma_long = signals.get('sma_long')
         rsi = signals.get('rsi')
         macd = signals.get('macd')
         signal = signals.get('macd_signal')
+        investment_style = signals.get('investment_style', 'MEDIUM_TERM')
         
         if not current_price:
             return PredictionDecision.HOLD, 0.3, "Không đủ dữ liệu để phân tích"
@@ -458,22 +549,37 @@ class PredictionEngine:
         sell_score = 0
         hold_score = 0
         
-        # Xu hướng
-        if sma_20 and current_price > sma_20:
-            buy_score += 1
-        elif sma_20 and current_price < sma_20:
-            sell_score += 1
-        else:
-            hold_score += 1
-        
-        # RSI
-        if rsi:
-            if rsi < 35:
-                buy_score += 1.5
-            elif rsi > 65:
-                sell_score += 1.5
+        # Xu hướng (sử dụng MA phù hợp)
+        if sma_short and sma_medium:
+            if current_price > sma_short > sma_medium:
+                buy_score += 2  # Xu hướng tăng rõ ràng
+            elif current_price < sma_short < sma_medium:
+                sell_score += 2  # Xu hướng giảm rõ ràng
+            elif current_price > sma_short:
+                buy_score += 1  # Tín hiệu tăng yếu
+            elif current_price < sma_short:
+                sell_score += 1  # Tín hiệu giảm yếu
             else:
-                hold_score += 0.5
+                hold_score += 1
+        
+        # RSI (điều chỉnh ngưỡng theo timeframe)
+        if rsi:
+            if investment_style == 'SHORT_TERM':
+                # Ngắn hạn: nhạy cảm hơn
+                if rsi < 30:
+                    buy_score += 2
+                elif rsi > 70:
+                    sell_score += 2
+                elif 40 <= rsi <= 60:
+                    hold_score += 1
+            else:
+                # Trung/dài hạn: ổn định hơn
+                if rsi < 35:
+                    buy_score += 1.5
+                elif rsi > 65:
+                    sell_score += 1.5
+                elif 40 <= rsi <= 60:
+                    hold_score += 0.5
         
         # MACD
         if macd and signal:
@@ -504,48 +610,84 @@ class PredictionEngine:
         sell_prob = sell_score / total_score
         hold_prob = hold_score / total_score
         
+        # Tạo rationale chi tiết
+        rationale_parts = []
+        if rsi:
+            rsi_status = "Oversold" if rsi < 30 else "Overbought" if rsi > 70 else "Neutral"
+            rationale_parts.append(f"RSI: {rsi:.1f} ({rsi_status})")
+        
+        if macd and signal:
+            macd_status = "Bullish" if macd > signal else "Bearish"
+            rationale_parts.append(f"MACD: {macd_status}")
+        
+        if sma_short and sma_medium:
+            trend_status = "Uptrend" if current_price > sma_short > sma_medium else "Downtrend" if current_price < sma_short < sma_medium else "Sideways"
+            rationale_parts.append(f"Trend: {trend_status}")
+        
+        rationale = f"Tín hiệu {'mua' if buy_prob > sell_prob and buy_prob > hold_prob else 'bán' if sell_prob > buy_prob and sell_prob > hold_prob else 'trung tính'} ({', '.join(rationale_parts)})"
+        
         if buy_prob > sell_prob and buy_prob > hold_prob:
             confidence = min(buy_prob + 0.2, 0.9)
-            rationale = f"Tín hiệu mua mạnh (RSI: {rsi:.1f}, MACD: {'+' if macd and signal and macd > signal else '-'})"
             return PredictionDecision.BUY_MORE, confidence, rationale
         elif sell_prob > buy_prob and sell_prob > hold_prob:
             confidence = min(sell_prob + 0.2, 0.9)
-            rationale = f"Tín hiệu bán mạnh (RSI: {rsi:.1f}, MACD: {'+' if macd and signal and macd > signal else '-'})"
             return PredictionDecision.SELL, confidence, rationale
         else:
             confidence = min(hold_prob + 0.1, 0.7)
-            rationale = f"Tín hiệu trung tính (RSI: {rsi:.1f}, giá gần MA20)"
             return PredictionDecision.HOLD, confidence, rationale
     
     @staticmethod
-    async def predict(symbol: str) -> PredictionResult:
-        """Dự đoán dựa trên phân tích kỹ thuật từ dữ liệu lịch sử"""
+    async def predict(symbol: str, investment_style: InvestmentStyle = InvestmentStyle.MEDIUM_TERM) -> PredictionResult:
+        """Dự đoán dựa trên phân tích kỹ thuật từ dữ liệu lịch sử theo phong cách đầu tư"""
         try:
-            # Lấy dữ liệu lịch sử
-            data = await PredictionEngine.get_historical_data(symbol, days=60)
+            # Lấy dữ liệu lịch sử theo timeframe phù hợp
+            days = PredictionEngine.get_data_period_for_style(investment_style)
+            data = await PredictionEngine.get_historical_data(symbol, days=days)
             if not data:
                 return PredictionResult(
                     symbol=symbol,
                     decision=PredictionDecision.HOLD,
                     confidence=0.3,
                     rationale="Không thể lấy dữ liệu lịch sử",
+                    investment_style=investment_style,
+                    timeframe=f"{days} ngày"
                 )
             
-            # Phân tích tín hiệu kỹ thuật
-            signals = PredictionEngine.analyze_technical_signals(data)
+            # Phân tích tín hiệu kỹ thuật theo phong cách đầu tư
+            signals = PredictionEngine.analyze_technical_signals(data, investment_style)
             if not signals:
                 return PredictionResult(
                     symbol=symbol,
                     decision=PredictionDecision.HOLD,
                     confidence=0.3,
                     rationale="Không đủ dữ liệu để tính toán chỉ báo kỹ thuật",
+                    investment_style=investment_style,
+                    timeframe=f"{days} ngày"
                 )
             
             # Tạo kịch bản
             scenarios = PredictionEngine.generate_scenarios(signals)
             
+            # Thêm phân tích cơ bản cho đầu tư dài hạn
+            fundamental_signals = {}
+            if investment_style == InvestmentStyle.LONG_TERM:
+                fundamental_data = await PredictionEngine.get_fundamental_data(symbol)
+                if fundamental_data:
+                    fundamental_signals = PredictionEngine.analyze_fundamental_signals(fundamental_data)
+                    # Cập nhật signals với thông tin cơ bản
+                    signals.update(fundamental_signals)
+            
             # Đưa ra quyết định
             decision, confidence, rationale = PredictionEngine.make_decision(signals, scenarios)
+            
+            # Tạo timeframe description
+            timeframe_desc = f"{days} ngày"
+            if investment_style == InvestmentStyle.SHORT_TERM:
+                timeframe_desc = "3 tháng (ngắn hạn)"
+            elif investment_style == InvestmentStyle.MEDIUM_TERM:
+                timeframe_desc = "1 năm (trung hạn)"
+            else:
+                timeframe_desc = "3 năm (dài hạn)"
             
             return PredictionResult(
                 symbol=symbol,
@@ -554,6 +696,8 @@ class PredictionEngine:
                 rationale=rationale,
                 scenarios=scenarios,
                 technical_signals=signals,
+                investment_style=investment_style,
+                timeframe=timeframe_desc
             )
             
         except Exception as e:
@@ -562,7 +706,122 @@ class PredictionEngine:
                 decision=PredictionDecision.HOLD,
                 confidence=0.3,
                 rationale=f"Lỗi phân tích: {str(e)}",
+                investment_style=investment_style,
+                timeframe=f"{PredictionEngine.get_data_period_for_style(investment_style)} ngày"
             )
+    
+    @staticmethod
+    async def get_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
+        """Lấy dữ liệu cơ bản cho phân tích dài hạn"""
+        try:
+            from vnstock import Vnstock
+            
+            # Thử lấy dữ liệu cơ bản từ vnstock
+            for source in ("VCI", "TCBS", "DNSE", "SSI"):
+                try:
+                    stock = Vnstock().stock(symbol=symbol, source=source)
+                    
+                    # Lấy thông tin cơ bản
+                    company_info = stock.company_info
+                    financial_ratios = stock.financial_ratios
+                    
+                    if company_info is not None and not company_info.empty:
+                        # Lấy các chỉ số cơ bản
+                        pe_ratio = None
+                        pb_ratio = None
+                        roe = None
+                        market_cap = None
+                        
+                        # Thử lấy P/E, P/B từ financial_ratios
+                        if financial_ratios is not None and not financial_ratios.empty:
+                            try:
+                                latest_ratios = financial_ratios.iloc[-1]
+                                pe_ratio = latest_ratios.get('pe', None)
+                                pb_ratio = latest_ratios.get('pb', None)
+                                roe = latest_ratios.get('roe', None)
+                            except Exception:
+                                pass
+                        
+                        # Thử lấy market cap từ company_info
+                        try:
+                            if 'market_cap' in company_info.columns:
+                                market_cap = company_info['market_cap'].iloc[-1]
+                        except Exception:
+                            pass
+                        
+                        return {
+                            'pe_ratio': pe_ratio,
+                            'pb_ratio': pb_ratio,
+                            'roe': roe,
+                            'market_cap': market_cap,
+                            'company_name': company_info.get('company_name', [symbol])[0] if 'company_name' in company_info.columns else symbol
+                        }
+                        
+                except Exception:
+                    continue
+            
+            return None
+            
+        except Exception:
+            return None
+    
+    @staticmethod
+    def analyze_fundamental_signals(fundamental_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Phân tích tín hiệu cơ bản cho đầu tư dài hạn"""
+        if not fundamental_data:
+            return {}
+        
+        pe_ratio = fundamental_data.get('pe_ratio')
+        pb_ratio = fundamental_data.get('pb_ratio')
+        roe = fundamental_data.get('roe')
+        market_cap = fundamental_data.get('market_cap')
+        
+        signals = {
+            'pe_ratio': pe_ratio,
+            'pb_ratio': pb_ratio,
+            'roe': roe,
+            'market_cap': market_cap,
+            'valuation_score': 0,
+            'quality_score': 0,
+            'fundamental_analysis': []
+        }
+        
+        # Đánh giá định giá (P/E, P/B)
+        if pe_ratio is not None:
+            if pe_ratio < 10:
+                signals['valuation_score'] += 2  # Rất rẻ
+                signals['fundamental_analysis'].append(f"P/E thấp ({pe_ratio:.1f}) - Cổ phiếu rẻ")
+            elif pe_ratio < 15:
+                signals['valuation_score'] += 1  # Rẻ
+                signals['fundamental_analysis'].append(f"P/E hợp lý ({pe_ratio:.1f})")
+            elif pe_ratio > 25:
+                signals['valuation_score'] -= 1  # Đắt
+                signals['fundamental_analysis'].append(f"P/E cao ({pe_ratio:.1f}) - Có thể đắt")
+        
+        if pb_ratio is not None:
+            if pb_ratio < 1:
+                signals['valuation_score'] += 2  # Rất rẻ
+                signals['fundamental_analysis'].append(f"P/B thấp ({pb_ratio:.1f}) - Giá trị sổ sách tốt")
+            elif pb_ratio < 2:
+                signals['valuation_score'] += 1  # Rẻ
+                signals['fundamental_analysis'].append(f"P/B hợp lý ({pb_ratio:.1f})")
+            elif pb_ratio > 3:
+                signals['valuation_score'] -= 1  # Đắt
+                signals['fundamental_analysis'].append(f"P/B cao ({pb_ratio:.1f}) - Có thể đắt")
+        
+        # Đánh giá chất lượng (ROE)
+        if roe is not None:
+            if roe > 20:
+                signals['quality_score'] += 2  # Rất tốt
+                signals['fundamental_analysis'].append(f"ROE cao ({roe:.1f}%) - Hiệu quả kinh doanh tốt")
+            elif roe > 15:
+                signals['quality_score'] += 1  # Tốt
+                signals['fundamental_analysis'].append(f"ROE tốt ({roe:.1f}%)")
+            elif roe < 10:
+                signals['quality_score'] -= 1  # Kém
+                signals['fundamental_analysis'].append(f"ROE thấp ({roe:.1f}%) - Cần cải thiện")
+        
+        return signals
 
 
 CREATE_TABLES_SQL = [
@@ -619,6 +878,16 @@ CREATE_TABLES_SQL = [
         symbol TEXT NOT NULL,
         stoploss_pct REAL NOT NULL DEFAULT 0.05,
         PRIMARY KEY (user_id, symbol)
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS stock_investment_style (
+        user_id INTEGER NOT NULL,
+        symbol TEXT NOT NULL,
+        investment_style TEXT NOT NULL DEFAULT 'MEDIUM_TERM',
+        last_updated TEXT NOT NULL,
+        PRIMARY KEY (user_id, symbol),
+        FOREIGN KEY(user_id) REFERENCES users(user_id)
     );
     """,
 ]
@@ -716,6 +985,49 @@ async def set_stock_stoploss(user_id: int, symbol: str, stoploss_pct: float) -> 
             (user_id, symbol, stoploss_pct),
         )
         await db.commit()
+
+
+async def get_stock_investment_style(user_id: int, symbol: str) -> InvestmentStyle:
+    """Get investment style for a specific stock."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT investment_style FROM stock_investment_style WHERE user_id=? AND symbol=?",
+            (user_id, symbol),
+        ) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return InvestmentStyle.MEDIUM_TERM
+            try:
+                return InvestmentStyle(row[0])
+            except ValueError:
+                return InvestmentStyle.MEDIUM_TERM
+
+
+async def set_stock_investment_style(user_id: int, symbol: str, style: InvestmentStyle) -> None:
+    """Set investment style for a specific stock."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO stock_investment_style (user_id, symbol, investment_style, last_updated) VALUES (?, ?, ?, ?)",
+            (user_id, symbol, style.value, datetime.now(timezone.utc).isoformat()),
+        )
+        await db.commit()
+
+
+async def get_all_stock_styles(user_id: int) -> Dict[str, InvestmentStyle]:
+    """Get investment styles for all stocks in user's portfolio."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT symbol, investment_style FROM stock_investment_style WHERE user_id=?",
+            (user_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+            result = {}
+            for symbol, style_str in rows:
+                try:
+                    result[symbol] = InvestmentStyle(style_str)
+                except ValueError:
+                    result[symbol] = InvestmentStyle.MEDIUM_TERM
+            return result
 
 
 async def get_price_and_volume(symbol: str, vol_ma_days: int) -> tuple[Optional[float], Optional[float], Optional[float]]:
@@ -1078,10 +1390,17 @@ async def analyze_and_notify(application: Application, user_id: int, chat_id: st
         await application.bot.send_message(chat_id=chat_id, text="Danh mục trống.")
         return
 
+    # Lấy phong cách đầu tư cho từng cổ phiếu
+    stock_styles = await get_all_stock_styles(user_id)
+    style_text = {"SHORT_TERM": "ngắn hạn", "MEDIUM_TERM": "trung hạn", "LONG_TERM": "dài hạn"}
+
     lines: List[str] = ["📊 Kết quả phân tích danh mục:"]
     for symbol, qty, avg_cost in positions:
+        # Lấy phong cách đầu tư cho cổ phiếu này
+        investment_style = stock_styles.get(symbol, InvestmentStyle.MEDIUM_TERM)
+        
         price = await MarketData.get_price(symbol)
-        pred = await PredictionEngine.predict(symbol)
+        pred = await PredictionEngine.predict(symbol, investment_style)
         decision = pred.decision
         conf_pct = int(pred.confidence * 100)
         price_str = f"{price:.2f}" if price is not None else "N/A"
@@ -1095,7 +1414,7 @@ async def analyze_and_notify(application: Application, user_id: int, chat_id: st
             scenario_text = f" | Kịch bản: {top_scenario[0]} ({top_scenario[1]*100:.0f}%)"
         
         lines.append(
-            f"- {symbol}: {decision} (conf {conf_pct}%), Giá={price_str}, SL={qty:g}, Giá vốn={avg_cost:.2f}, Lãi/lỗ={pnl_str}{scenario_text}"
+            f"- {symbol} ({style_text[investment_style.value]}): {decision} (conf {conf_pct}%), Giá={price_str}, SL={qty:g}, Giá vốn={avg_cost:.2f}, Lãi/lỗ={pnl_str}{scenario_text}"
         )
     await application.bot.send_message(chat_id=chat_id, text="\n".join(lines))
 
@@ -1139,6 +1458,12 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/pnl — thống kê lãi lỗ theo giá hiện tại\n"
         "/analyze_now — phân tích ngay và gợi ý hành động\n"
         "/predict <mã> — dự đoán giá với phân tích kỹ thuật chi tiết\n"
+        "\n"
+        "🎯 Phong cách đầu tư (theo từng cổ phiếu):\n"
+        "/set_style <mã> <SHORT_TERM|MEDIUM_TERM|LONG_TERM> — đặt phong cách đầu tư cho cổ phiếu\n"
+        "/my_style — xem phong cách đầu tư cho tất cả cổ phiếu\n"
+        "\n"
+        "⚙️ Quản lý:\n"
         "/reset — xóa toàn bộ dữ liệu danh mục (cần xác nhận)\n"
         "/confirm_reset — xác nhận xóa dữ liệu\n"
         "/cancel_reset — hủy yêu cầu xóa\n"
@@ -1148,6 +1473,14 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "⛔ Stoploss: tự động theo dõi từng cổ phiếu\n"
         "🚀 Breakout: gợi ý mua thêm khi xác nhận\n"
         "🔮 Dự đoán: phân tích kỹ thuật với kịch bản xác suất\n"
+        "\n"
+        "💡 Phong cách đầu tư (theo từng cổ phiếu):\n"
+        "• SHORT_TERM: 1-2 tuần, trading T+, dữ liệu 3 tháng\n"
+        "• MEDIUM_TERM: 1-6 tháng, xu hướng trung hạn, dữ liệu 1 năm\n"
+        "• LONG_TERM: 6+ tháng, value investing, dữ liệu 3 năm + P/E/P/B/ROE\n"
+        "\n"
+        "📝 Ví dụ: /set_style VIC LONG_TERM (đầu tư dài hạn VIC)\n"
+        "📝 Ví dụ: /set_style FPT SHORT_TERM (trading ngắn hạn FPT)\n"
     )
     await update.message.reply_text(text)
 
@@ -1168,11 +1501,16 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await add_transaction_and_update_position(user_id, symbol, "BUY", qty, price)
     await update.message.reply_text(f"Đã mua {qty:g} {symbol} giá {price:.2f}.")
     
-    # Prompt for stoploss setting
-    await update.message.reply_text(
-        f"💡 Để đặt stoploss cho {symbol}, dùng: /set_stoploss {symbol} <phần trăm>\n"
-        f"Ví dụ: /set_stoploss {symbol} 0.08 (8% stoploss)"
-    )
+    # Tự động đặt phong cách đầu tư mặc định nếu chưa có
+    current_style = await get_stock_investment_style(user_id, symbol)
+    if current_style == InvestmentStyle.MEDIUM_TERM:
+        # Chỉ hiển thị prompt nếu chưa được đặt
+        await update.message.reply_text(
+            f"💡 Để tùy chỉnh phân tích cho {symbol}:\n"
+            f"• Đặt stoploss: /set_stoploss {symbol} <phần trăm>\n"
+            f"• Đặt phong cách đầu tư: /set_style {symbol} <SHORT_TERM|MEDIUM_TERM|LONG_TERM>\n"
+            f"• Mặc định: MEDIUM_TERM (trung hạn)"
+        )
 
 
 async def sell_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1282,7 +1620,7 @@ async def analyze_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def predict_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Dự đoán giá cho một cổ phiếu cụ thể"""
+    """Dự đoán giá cho một cổ phiếu cụ thể theo phong cách đầu tư của cổ phiếu đó"""
     assert update.effective_user is not None
     user_id = update.effective_user.id
     
@@ -1292,18 +1630,23 @@ async def predict_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     
     symbol = context.args[0].upper().strip()
     
+    # Lấy phong cách đầu tư cho cổ phiếu này
+    investment_style = await get_stock_investment_style(user_id, symbol)
+    
     # Gửi thông báo đang xử lý
-    processing_msg = await update.message.reply_text(f"🔍 Đang phân tích {symbol}...")
+    style_text = {"SHORT_TERM": "ngắn hạn", "MEDIUM_TERM": "trung hạn", "LONG_TERM": "dài hạn"}
+    processing_msg = await update.message.reply_text(f"🔍 Đang phân tích {symbol} ({style_text[investment_style.value]})...")
     
     try:
-        # Lấy dự đoán
-        pred = await PredictionEngine.predict(symbol)
+        # Lấy dự đoán theo phong cách đầu tư
+        pred = await PredictionEngine.predict(symbol, investment_style)
         
         # Tạo thông báo chi tiết
-        lines = [f"📈 Dự đoán cho {symbol}:"]
+        lines = [f"📈 Dự đoán cho {symbol} ({style_text[investment_style.value]}):"]
         lines.append(f"🎯 Quyết định: {pred.decision}")
         lines.append(f"📊 Độ tin cậy: {pred.confidence*100:.1f}%")
         lines.append(f"💡 Lý do: {pred.rationale}")
+        lines.append(f"⏰ Khung thời gian: {pred.timeframe}")
         
         # Thêm kịch bản
         if pred.scenarios:
@@ -1317,8 +1660,26 @@ async def predict_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             lines.append("\n📊 Chỉ báo kỹ thuật:")
             if signals.get('current_price'):
                 lines.append(f"  • Giá hiện tại: {signals['current_price']:.2f}")
-            if signals.get('sma_20'):
-                lines.append(f"  • MA20: {signals['sma_20']:.2f}")
+            
+            # Hiển thị MA phù hợp với timeframe
+            if investment_style == InvestmentStyle.SHORT_TERM:
+                if signals.get('sma_short'):
+                    lines.append(f"  • MA5: {signals['sma_short']:.2f}")
+                if signals.get('sma_medium'):
+                    lines.append(f"  • MA10: {signals['sma_medium']:.2f}")
+            elif investment_style == InvestmentStyle.MEDIUM_TERM:
+                if signals.get('sma_short'):
+                    lines.append(f"  • MA20: {signals['sma_short']:.2f}")
+                if signals.get('sma_medium'):
+                    lines.append(f"  • MA50: {signals['sma_medium']:.2f}")
+            else:  # LONG_TERM
+                if signals.get('sma_short'):
+                    lines.append(f"  • MA50: {signals['sma_short']:.2f}")
+                if signals.get('sma_medium'):
+                    lines.append(f"  • MA100: {signals['sma_medium']:.2f}")
+                if signals.get('sma_long'):
+                    lines.append(f"  • MA200: {signals['sma_long']:.2f}")
+            
             if signals.get('rsi'):
                 rsi_val = signals['rsi']
                 rsi_status = "Oversold" if rsi_val < 30 else "Overbought" if rsi_val > 70 else "Neutral"
@@ -1327,12 +1688,104 @@ async def predict_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 macd_trend = "Bullish" if signals['macd'] > signals['macd_signal'] else "Bearish"
                 lines.append(f"  • MACD: {macd_trend}")
         
+        # Thêm phân tích cơ bản cho đầu tư dài hạn
+        if investment_style == InvestmentStyle.LONG_TERM and pred.technical_signals:
+            signals = pred.technical_signals
+            if signals.get('fundamental_analysis'):
+                lines.append("\n🏢 Phân tích cơ bản:")
+                for analysis in signals['fundamental_analysis']:
+                    lines.append(f"  • {analysis}")
+            
+            if signals.get('pe_ratio') or signals.get('pb_ratio') or signals.get('roe'):
+                lines.append("\n📊 Chỉ số tài chính:")
+                if signals.get('pe_ratio'):
+                    lines.append(f"  • P/E: {signals['pe_ratio']:.1f}")
+                if signals.get('pb_ratio'):
+                    lines.append(f"  • P/B: {signals['pb_ratio']:.1f}")
+                if signals.get('roe'):
+                    lines.append(f"  • ROE: {signals['roe']:.1f}%")
+        
         # Gửi kết quả
         result_text = "\n".join(lines)
         await processing_msg.edit_text(result_text)
         
     except Exception as e:
         await processing_msg.edit_text(f"❌ Lỗi khi phân tích {symbol}: {str(e)}")
+
+
+async def set_style_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Đặt phong cách đầu tư cho một cổ phiếu cụ thể"""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    if len(context.args) != 2:
+        await update.message.reply_text(
+            "Cú pháp: /set_style <mã_cổ_phiếu> <phong_cách>\n"
+            "Phong cách khả dụng:\n"
+            "• SHORT_TERM - Ngắn hạn (1-2 tuần, trading T+)\n"
+            "• MEDIUM_TERM - Trung hạn (1-6 tháng)\n"
+            "• LONG_TERM - Dài hạn (6+ tháng, value investing)\n"
+            "Ví dụ: /set_style VIC LONG_TERM"
+        )
+        return
+    
+    symbol = context.args[0].upper().strip()
+    style_arg = context.args[1].upper().strip()
+    
+    try:
+        investment_style = InvestmentStyle(style_arg)
+        await set_stock_investment_style(user_id, symbol, investment_style)
+        
+        style_names = {
+            InvestmentStyle.SHORT_TERM: "Ngắn hạn (1-2 tuần, trading T+)",
+            InvestmentStyle.MEDIUM_TERM: "Trung hạn (1-6 tháng)",
+            InvestmentStyle.LONG_TERM: "Dài hạn (6+ tháng, value investing)"
+        }
+        
+        await update.message.reply_text(
+            f"✅ Đã đặt phong cách đầu tư cho {symbol}: {style_names[investment_style]}\n"
+            f"📊 Dữ liệu phân tích: {PredictionEngine.get_data_period_for_style(investment_style)} ngày\n"
+            f"🎯 Chỉ báo kỹ thuật được tối ưu cho timeframe này"
+        )
+        
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Phong cách đầu tư không hợp lệ.\n"
+            "Sử dụng: SHORT_TERM, MEDIUM_TERM, hoặc LONG_TERM"
+        )
+
+
+async def my_style_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Hiển thị phong cách đầu tư cho tất cả cổ phiếu trong danh mục"""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    # Lấy danh mục và phong cách đầu tư
+    positions = await get_positions(user_id)
+    stock_styles = await get_all_stock_styles(user_id)
+    
+    if not positions:
+        await update.message.reply_text("Danh mục trống. Thêm cổ phiếu trước khi xem phong cách đầu tư.")
+        return
+    
+    style_names = {
+        InvestmentStyle.SHORT_TERM: "Ngắn hạn",
+        InvestmentStyle.MEDIUM_TERM: "Trung hạn", 
+        InvestmentStyle.LONG_TERM: "Dài hạn"
+    }
+    
+    lines = ["📊 Phong cách đầu tư cho từng cổ phiếu:"]
+    for symbol, qty, avg_cost in positions:
+        investment_style = stock_styles.get(symbol, InvestmentStyle.MEDIUM_TERM)
+        lines.append(f"• {symbol}: {style_names[investment_style]} (SL: {qty:g})")
+    
+    lines.append("\n💡 Dùng /set_style <mã> <phong_cách> để thay đổi")
+    lines.append("\n📋 Phong cách khả dụng:")
+    lines.append("• SHORT_TERM - 1-2 tuần, trading T+")
+    lines.append("• MEDIUM_TERM - 1-6 tháng, xu hướng")
+    lines.append("• LONG_TERM - 6+ tháng, value investing")
+    
+    await update.message.reply_text("\n".join(lines))
 
 
 # (Deprecated) set_schedule_cmd removed; use /track_on or /track_off instead
@@ -1526,6 +1979,8 @@ def main() -> None:
     application.add_handler(CommandHandler("pnl", pnl_cmd))
     application.add_handler(CommandHandler("analyze_now", analyze_now_cmd))
     application.add_handler(CommandHandler("predict", predict_cmd))
+    application.add_handler(CommandHandler("set_style", set_style_cmd))
+    application.add_handler(CommandHandler("my_style", my_style_cmd))
     application.add_handler(CommandHandler("reset", reset_cmd))
     application.add_handler(CommandHandler("confirm_reset", confirm_reset_cmd))
     application.add_handler(CommandHandler("cancel_reset", cancel_reset_cmd))
