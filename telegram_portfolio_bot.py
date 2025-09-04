@@ -1451,8 +1451,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "Lệnh khả dụng:\n"
-        "/add <mã> <sl> <giá> — mua thêm\n"
-        "/sell <mã> <sl> <giá> — bán\n"
+        "/add <mã> <số_lượng> <giá> <stoploss%> — mua thêm\n"
+        "/sell <mã> <số_lượng> <giá> — bán\n"
         "/set_stoploss <mã> <phần trăm> — đặt stoploss cho từng cổ phiếu\n"
         "/portfolio — xem danh mục\n"
         "/pnl — thống kê lãi lỗ theo giá hiện tại\n"
@@ -1469,7 +1469,10 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/cancel_reset — hủy yêu cầu xóa\n"
         "/restart — khởi động lại bot (nạp thay đổi mới)\n"
         "\n"
-        "📊 Tracking tự động theo phiên VN (9:05, 15-30 phút, 14:35, 14:40)\n"
+        "📊 Tracking tự động:\n"
+        "/track_on — bật tracking tự động\n"
+        "/track_off — tắt tracking tự động\n"
+        "/track_config — xem cấu hình tracking\n"
         "⛔ Stoploss: tự động theo dõi từng cổ phiếu\n"
         "🚀 Breakout: gợi ý mua thêm khi xác nhận\n"
         "🔮 Dự đoán: phân tích kỹ thuật với kịch bản xác suất\n"
@@ -1488,18 +1491,29 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     assert update.effective_user is not None
     user_id = update.effective_user.id
-    if len(context.args) != 3:
-        await update.message.reply_text("Cú pháp: /add <mã> <sl> <giá>")
+    if len(context.args) != 4:
+        await update.message.reply_text("Cú pháp: /add <mã> <số_lượng> <giá> <stoploss%>\nVí dụ: /add VIC 100 50000 0.08 (8%)")
         return
     symbol = context.args[0].upper()
     try:
         qty = float(context.args[1])
         price = float(context.args[2])
+        stoploss_pct = float(context.args[3])
+        if stoploss_pct <= 0 or stoploss_pct > 1:
+            raise ValueError()
     except ValueError:
-        await update.message.reply_text("SL và giá phải là số.")
+        await update.message.reply_text("Số lượng, giá và stoploss phải là số hợp lệ. Stoploss từ 0.01 đến 1.0 (1% đến 100%)")
         return
+    
     await add_transaction_and_update_position(user_id, symbol, "BUY", qty, price)
-    await update.message.reply_text(f"Đã mua {qty:g} {symbol} giá {price:.2f}.")
+    
+    # Tự động set stoploss cho cổ phiếu này
+    await set_stock_stoploss(user_id, symbol, stoploss_pct)
+    
+    await update.message.reply_text(
+        f"✅ Đã mua {qty:g} {symbol} giá {price:.2f}.\n"
+        f"📊 Stoploss đã được đặt: {stoploss_pct*100:.0f}% (giá: {price*(1-stoploss_pct):.2f})"
+    )
     
     # Tự động đặt phong cách đầu tư mặc định nếu chưa có
     current_style = await get_stock_investment_style(user_id, symbol)
@@ -1517,14 +1531,14 @@ async def sell_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     assert update.effective_user is not None
     user_id = update.effective_user.id
     if len(context.args) != 3:
-        await update.message.reply_text("Cú pháp: /sell <mã> <sl> <giá>")
+        await update.message.reply_text("Cú pháp: /sell <mã> <số_lượng> <giá>")
         return
     symbol = context.args[0].upper()
     try:
         qty = float(context.args[1])
         price = float(context.args[2])
     except ValueError:
-        await update.message.reply_text("SL và giá phải là số.")
+        await update.message.reply_text("Số lượng và giá phải là số.")
         return
     await add_transaction_and_update_position(user_id, symbol, "SELL", qty, price)
     await update.message.reply_text(f"Đã bán {qty:g} {symbol} giá {price:.2f}.")
@@ -1881,6 +1895,79 @@ async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     asyncio.create_task(_do_restart())
 
 
+async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Enable automatic tracking for user's portfolio."""
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    
+    # Enable tracking with default settings (sl_pct will be overridden by individual stock stoploss)
+    await set_tracking_settings(user_id, enabled=True, sl_pct=0.05, tp_pct=0.10, vol_ma_days=20)
+    
+    # Schedule tracking jobs
+    await schedule_tracking_jobs(context.application, user_id)
+    
+    await update.message.reply_text(
+        "✅ **Tracking đã được bật!**\n\n"
+        "Bot sẽ tự động theo dõi portfolio của bạn:\n"
+        "• 09:05 - ATO check\n"
+        "• 09:15-10:30 - Mỗi 15 phút\n"
+        "• 10:30-13:30 - Mỗi 30 phút\n"
+        "• 13:30-14:30 - Mỗi 15 phút\n"
+        "• 14:35 - ATC check\n"
+        "• 14:40 - Tóm tắt cuối ngày\n\n"
+        "Sử dụng `/track_config` để tùy chỉnh cài đặt.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+async def track_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Disable automatic tracking for user's portfolio."""
+    user_id = update.effective_user.id
+    
+    # Disable tracking
+    await set_tracking_settings(user_id, enabled=False, sl_pct=0.05, tp_pct=0.10, vol_ma_days=20)
+    
+    # Remove tracking jobs
+    for tag in ["ato_once", "morning_15m", "mid_30m", "late_15m", "atc_once", "summary_once"]:
+        for job in context.application.job_queue.get_jobs_by_name(_track_job_name(user_id, tag)):
+            job.schedule_removal()
+    
+    await update.message.reply_text(
+        "❌ **Tracking đã được tắt!**\n\n"
+        "Bot sẽ không tự động theo dõi portfolio nữa.\n"
+        "Sử dụng `/track_on` để bật lại.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+async def track_config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show current tracking configuration and allow modification."""
+    user_id = update.effective_user.id
+    enabled, sl_pct, tp_pct, vol_ma_days = await get_tracking_settings(user_id)
+    
+    status = "🟢 BẬT" if enabled else "🔴 TẮT"
+    
+    await update.message.reply_text(
+        f"📊 **Cấu hình Tracking hiện tại:**\n\n"
+        f"**Trạng thái:** {status}\n"
+        f"**Stop Loss:** Tùy chỉnh theo từng cổ phiếu (dùng /add với stoploss%)\n"
+        f"**Take Profit:** {tp_pct*100:.0f}%\n"
+        f"**Volume MA:** {vol_ma_days} ngày\n\n"
+        f"**Lịch theo dõi:**\n"
+        f"• 09:05 - ATO check\n"
+        f"• 09:15-10:30 - Mỗi 15 phút\n"
+        f"• 10:30-13:30 - Mỗi 30 phút\n"
+        f"• 13:30-14:30 - Mỗi 15 phút\n"
+        f"• 14:35 - ATC check\n"
+        f"• 14:40 - Tóm tắt cuối ngày\n\n"
+        f"**Commands:**\n"
+        f"• `/track_on` - Bật tracking\n"
+        f"• `/track_off` - Tắt tracking\n"
+        f"• `/track_config` - Xem cấu hình",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
 async def ui_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Launch Streamlit UI in the background and send the URL to the user."""
     try:
@@ -1987,6 +2074,9 @@ def main() -> None:
     application.add_handler(CommandHandler("set_stoploss", set_stoploss_cmd))
     application.add_handler(CommandHandler("restart", restart_cmd))
     application.add_handler(CommandHandler("ui", ui_cmd))
+    application.add_handler(CommandHandler("track_on", track_on_cmd))
+    application.add_handler(CommandHandler("track_off", track_off_cmd))
+    application.add_handler(CommandHandler("track_config", track_config_cmd))
 
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
