@@ -1089,27 +1089,34 @@ async def get_price_and_volume(symbol: str, vol_ma_days: int) -> tuple[Optional[
 async def check_positions_and_alert(app: Application, user_id: int, chat_id: str) -> None:
     enabled, sl_pct, tp_pct, vol_ma_days = await get_tracking_settings(user_id)
     if not enabled:
+        print(f"Tracking disabled for user {user_id}")
         return
     positions = await get_positions(user_id)
     if not positions:
+        print(f"No positions found for user {user_id}")
         return
 
+    print(f"Checking {len(positions)} positions for user {user_id}")
     lines: List[str] = ["Theo dõi giá (tự động):"]
     any_signal = False
 
     for symbol, qty, avg_cost in positions:
         price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days)
         if price is None:
+            print(f"  {symbol}: No price data available")
             continue
         
         # Use individual stoploss for this stock
         individual_sl_pct = await get_stock_stoploss(user_id, symbol)
         sl_price = avg_cost * (1 - individual_sl_pct)
         tp_price = avg_cost * (1 + tp_pct)
+        
+        print(f"  {symbol}: Price={price:.2f}, AvgCost={avg_cost:.2f}, SL={sl_price:.2f} ({individual_sl_pct*100:.0f}%), TP={tp_price:.2f} ({tp_pct*100:.0f}%)")
 
         if price <= sl_price:
             any_signal = True
             lines.append(f"- {symbol}: ⛔ Stoploss kích hoạt. Giá {price:.2f} ≤ {sl_price:.2f} ({individual_sl_pct*100:.0f}%). Gợi ý: SELL.")
+            print(f"  {symbol}: STOPLOSS TRIGGERED!")
             # Optional: auto record sell in DB (requires confirmation policy)
             # await add_transaction_and_update_position(user_id, symbol, "SELL", qty, price)
         elif price >= tp_price:
@@ -1117,17 +1124,54 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
             if vol_ok:
                 any_signal = True
                 lines.append(f"- {symbol}: ✅ Breakout xác nhận. Giá {price:.2f} ≥ {tp_price:.2f}{' & vol>MA' if (vol is not None and vol_ma is not None) else ''}. Gợi ý: BUY_MORE.")
+                print(f"  {symbol}: BREAKOUT CONFIRMED!")
             else:
                 lines.append(f"- {symbol}: Giá {price:.2f} ≥ {tp_price:.2f} nhưng vol chưa xác nhận (vol≤MA). Theo dõi thêm.")
+                print(f"  {symbol}: Breakout but volume not confirmed")
+        else:
+            print(f"  {symbol}: No signal (price between SL and TP)")
 
     if any_signal:
-        await app.bot.send_message(chat_id=chat_id, text="\n".join(lines))
+        try:
+            await app.bot.send_message(chat_id=chat_id, text="\n".join(lines))
+            print(f"✅ Sent tracking alert to user {user_id}")
+        except Exception as e:
+            print(f"❌ Failed to send tracking alert to user {user_id}: {e}")
+    else:
+        # Send periodic status update every 30 minutes (only at :00 and :30)
+        current_time = datetime.now(VN_TZ)
+        if current_time.minute in [0, 30]:
+            status_lines = ["📊 **Theo dõi giá tự động**\n"]
+            status_lines.append(f"⏰ {current_time.strftime('%H:%M:%S')} - Bot đang theo dõi {len(positions)} mã cổ phiếu")
+            
+            for symbol, qty, avg_cost in positions:
+                price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days)
+                if price is not None:
+                    individual_sl_pct = await get_stock_stoploss(user_id, symbol)
+                    sl_price = avg_cost * (1 - individual_sl_pct)
+                    tp_price = avg_cost * (1 + tp_pct)
+                    pnl = (price - avg_cost) * qty
+                    pnl_pct = ((price - avg_cost) / avg_cost) * 100
+                    
+                    status_lines.append(f"• {symbol}: {price:.2f} (SL: {sl_price:.2f}, TP: {tp_price:.2f}) - PnL: {pnl:+.2f} ({pnl_pct:+.1f}%)")
+            
+            try:
+                await app.bot.send_message(chat_id=chat_id, text="\n".join(status_lines))
+                print(f"✅ Sent status update to user {user_id}")
+            except Exception as e:
+                print(f"❌ Failed to send status update to user {user_id}: {e}")
+        else:
+            print(f"No signals and not time for status update (minute: {current_time.minute})")
 
 
 async def summarize_eod_and_outlook(app: Application, user_id: int, chat_id: str) -> None:
     positions = await get_positions(user_id)
     if not positions:
-        await app.bot.send_message(chat_id=chat_id, text="Tổng kết EOD: Danh mục trống.")
+        try:
+            await app.bot.send_message(chat_id=chat_id, text="Tổng kết EOD: Danh mục trống.")
+            print(f"✅ Sent empty portfolio summary to user {user_id}")
+        except Exception as e:
+            print(f"❌ Failed to send empty portfolio summary to user {user_id}: {e}")
         return
 
     lines: List[str] = ["Tổng kết cuối phiên & dự báo cho hôm sau:"]
@@ -1164,7 +1208,11 @@ async def summarize_eod_and_outlook(app: Application, user_id: int, chat_id: str
     if any_price:
         lines.append(f"Tổng PnL ước tính: {total_pnl:.2f}")
 
-    await app.bot.send_message(chat_id=chat_id, text="\n".join(lines))
+    try:
+        await app.bot.send_message(chat_id=chat_id, text="\n".join(lines))
+        print(f"✅ Sent EOD summary to user {user_id}")
+    except Exception as e:
+        print(f"❌ Failed to send EOD summary to user {user_id}: {e}")
 
 
 def _vn_time(hh: int, mm: int) -> time:
@@ -1193,11 +1241,14 @@ async def tracking_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
         
         print(f"Running tracking job: {job_type} for user {user_id}")
         
-        # Send immediate notification that job is running
-        await ctx.application.bot.send_message(
-            chat_id=chat_id,
-            text=f"🔔 Test job đã chạy! Job: {job.name}, Type: {job_type}"
-        )
+        # Check if bot can send messages to this chat first
+        try:
+            # Try to get chat info to verify we can send messages
+            chat = await ctx.application.bot.get_chat(chat_id)
+            print(f"Chat info retrieved successfully for user {user_id}")
+        except Exception as e:
+            print(f"Cannot access chat for user {user_id}: {e}")
+            return
         
         if job_type == 'check_positions':
             await check_positions_and_alert(ctx.application, user_id, chat_id)
@@ -2085,6 +2136,9 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "• 13:30-14:30 - Mỗi 5 phút\n"
             "• 14:35 - ATC check\n"
             "• 14:40 - Tóm tắt cuối ngày\n\n"
+            "⚠️ **Lưu ý quan trọng:**\n"
+            "Để nhận được thông báo tự động, bạn cần bắt đầu cuộc trò chuyện với bot trước.\n"
+            "Hãy gửi bất kỳ tin nhắn nào (ví dụ: /help) để bot có thể gửi thông báo cho bạn.\n\n"
             "Sử dụng `/track_config` để tùy chỉnh cài đặt.\n"
             f"Đã schedule {len(user_jobs) if 'user_jobs' in locals() else 'N/A'} jobs.",
             parse_mode=ParseMode.MARKDOWN
