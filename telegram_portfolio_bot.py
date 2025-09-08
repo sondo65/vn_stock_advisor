@@ -8,6 +8,7 @@ from typing import List, Optional, Tuple, Dict, Any
 from enum import Enum
 from collections import deque
 import math
+import pandas as pd
 
 import aiosqlite
 from dotenv import load_dotenv
@@ -22,6 +23,8 @@ from telegram.ext import (
     Defaults,
     JobQueue,
 )
+from telegram.request import HTTPXRequest
+from telegram.error import TimedOut
 
 # Import P/E Calculator
 try:
@@ -41,6 +44,8 @@ DB_PATH = (
 )
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 DEFAULT_CHAT_ID = os.getenv("DEFAULT_CHAT_ID")
+# Test mode: if set to 1, schedule tracking every minute and send status every minute
+TEST_EVERY_MINUTE = os.getenv("TRACKING_TEST_MINUTE", "0") == "1"
 
 # Vietnam timezone for all scheduling
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -49,11 +54,45 @@ VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 class MarketData:
     @staticmethod
     async def get_price(symbol: str) -> Optional[float]:
-        """Fetch latest price for a symbol. Replace with real-time source as needed.
+        """Fetch latest price for a symbol. Try real-time first, then fallback to historical.
 
-        Default implementation tries vnstock if available, otherwise returns None.
+        Default implementation tries vnstock real-time quote first, then historical data.
         """
-        # First try vnstock Vnstock class with multiple sources (VCI/TCBS/DNSE/SSI)
+        # First try real-time quote from vnstock
+        try:
+            from vnstock import Vnstock
+
+            for source in ("VCI", "TCBS", "DNSE", "SSI"):
+                try:
+                    stock = Vnstock().stock(symbol=symbol, source=source)
+                    # Try to get real-time quote
+                    try:
+                        quote_data = stock.quote.live()
+                        if quote_data is not None and not quote_data.empty:
+                            # Try different price columns
+                            for price_col in ["price", "lastPrice", "close", "currentPrice"]:
+                                if price_col in quote_data.columns:
+                                    price_val = quote_data[price_col].iloc[0]
+                                    if price_val is not None and not pd.isna(price_val):
+                                        return float(price_val)
+                    except Exception:
+                        # If live() fails, try quote() method
+                        try:
+                            quote_data = stock.quote()
+                            if quote_data is not None and not quote_data.empty:
+                                for price_col in ["price", "lastPrice", "close", "currentPrice"]:
+                                    if price_col in quote_data.columns:
+                                        price_val = quote_data[price_col].iloc[0]
+                                        if price_val is not None and not pd.isna(price_val):
+                                            return float(price_val)
+                        except Exception:
+                            pass
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        # Fallback to historical data (last trading day)
         try:
             from vnstock import Vnstock
 
@@ -78,7 +117,7 @@ class MarketData:
         except Exception:
             pass
 
-        # Fallback to legacy helper stock_historical_data
+        # Final fallback to legacy helper stock_historical_data
         try:
             from vnstock import stock_historical_data
 
@@ -1056,6 +1095,39 @@ async def get_all_stock_styles(user_id: int) -> Dict[str, InvestmentStyle]:
 
 
 async def get_price_and_volume(symbol: str, vol_ma_days: int) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    # First try to get real-time price
+    try:
+        price = await MarketData.get_price(symbol)
+        if price is not None:
+            # Get volume data from historical data for MA calculation
+            try:
+                from vnstock import stock_historical_data
+                today = datetime.now().date()
+                start_date = (today - timedelta(days=max(20, vol_ma_days * 2))).strftime("%Y-%m-%d")
+                end_date = today.strftime("%Y-%m-%d")
+                df = stock_historical_data(
+                    symbol=symbol,
+                    start=start_date,
+                    end=end_date,
+                    resolution="1D",
+                )
+                if df is not None and len(df) > 0:
+                    df = df.dropna(subset=["volume"])  # type: ignore[attr-defined]
+                    if len(df) > 0:
+                        last_vol = float(df["volume"].iloc[-1])  # type: ignore[index]
+                        if len(df) >= vol_ma_days:
+                            ma_vol = float(df["volume"].tail(vol_ma_days).mean())  # type: ignore[attr-defined]
+                        else:
+                            ma_vol = float(df["volume"].mean())  # type: ignore[attr-defined]
+                        return (price, last_vol, ma_vol)
+            except Exception:
+                pass
+            # If volume data fails, return real-time price with None volume
+            return (price, None, None)
+    except Exception:
+        pass
+
+    # Fallback to historical data for both price and volume
     try:
         from vnstock import stock_historical_data
         today = datetime.now().date()
@@ -1086,7 +1158,7 @@ async def get_price_and_volume(symbol: str, vol_ma_days: int) -> tuple[Optional[
         return (price, None, None)
 
 
-async def check_positions_and_alert(app: Application, user_id: int, chat_id: str) -> None:
+async def check_positions_and_alert(app: Application, user_id: int, chat_id: str, *, force_status: bool = False) -> None:
     enabled, sl_pct, tp_pct, vol_ma_days = await get_tracking_settings(user_id)
     if not enabled:
         print(f"Tracking disabled for user {user_id}")
@@ -1097,7 +1169,7 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
         return
 
     print(f"Checking {len(positions)} positions for user {user_id}")
-    lines: List[str] = ["Theo dõi giá (tự động):"]
+    lines: List[str] = ["Theo dõi giá real-time (tự động):"]
     any_signal = False
 
     for symbol, qty, avg_cost in positions:
@@ -1115,7 +1187,7 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
 
         if price <= sl_price:
             any_signal = True
-            lines.append(f"- {symbol}: ⛔ Stoploss kích hoạt. Giá {price:.2f} ≤ {sl_price:.2f} ({individual_sl_pct*100:.0f}%). Gợi ý: SELL.")
+            lines.append(f"- {symbol}: ⛔ Stoploss kích hoạt. Giá RT {price:.2f} ≤ {sl_price:.2f} ({individual_sl_pct*100:.0f}%). Gợi ý: SELL.")
             print(f"  {symbol}: STOPLOSS TRIGGERED!")
             # Optional: auto record sell in DB (requires confirmation policy)
             # await add_transaction_and_update_position(user_id, symbol, "SELL", qty, price)
@@ -1123,10 +1195,10 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
             vol_ok = (vol is not None and vol_ma is not None and vol > vol_ma) or (vol is None or vol_ma is None)
             if vol_ok:
                 any_signal = True
-                lines.append(f"- {symbol}: ✅ Breakout xác nhận. Giá {price:.2f} ≥ {tp_price:.2f}{' & vol>MA' if (vol is not None and vol_ma is not None) else ''}. Gợi ý: BUY_MORE.")
+                lines.append(f"- {symbol}: ✅ Breakout xác nhận. Giá RT {price:.2f} ≥ {tp_price:.2f}{' & vol>MA' if (vol is not None and vol_ma is not None) else ''}. Gợi ý: BUY_MORE.")
                 print(f"  {symbol}: BREAKOUT CONFIRMED!")
             else:
-                lines.append(f"- {symbol}: Giá {price:.2f} ≥ {tp_price:.2f} nhưng vol chưa xác nhận (vol≤MA). Theo dõi thêm.")
+                lines.append(f"- {symbol}: Giá RT {price:.2f} ≥ {tp_price:.2f} nhưng vol chưa xác nhận (vol≤MA). Theo dõi thêm.")
                 print(f"  {symbol}: Breakout but volume not confirmed")
         else:
             print(f"  {symbol}: No signal (price between SL and TP)")
@@ -1138,9 +1210,10 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
         except Exception as e:
             print(f"❌ Failed to send tracking alert to user {user_id}: {e}")
     else:
-        # Send periodic status update every 30 minutes (only at :00 and :30)
+        # Send periodic status update
         current_time = datetime.now(VN_TZ)
-        if current_time.minute in [0, 30]:
+        # In test mode: send every minute; otherwise every 5 minutes; allow override
+        if force_status or TEST_EVERY_MINUTE or (current_time.minute % 5 == 0):
             status_lines = ["📊 **Theo dõi giá tự động**\n"]
             status_lines.append(f"⏰ {current_time.strftime('%H:%M:%S')} - Bot đang theo dõi {len(positions)} mã cổ phiếu")
             
@@ -1319,7 +1392,7 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
             jobs_scheduled += 1
             print(f"Scheduled ATO job for user {user_id}")
         
-        # 09:15–10:30: every 5 minutes
+        # 09:15–10:30: repeating checks
         if current_time < _vn_time(10, 30):
             start_dt = datetime.combine(now.date(), _vn_time(9, 15))
             end_dt = datetime.combine(now.date(), _vn_time(10, 30))
@@ -1330,7 +1403,7 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
                 first_dt = now + timedelta(seconds=2)
             app.job_queue.run_repeating(
                 name=_track_job_name(user_id, "morning_5m"),
-                interval=timedelta(minutes=5),
+                interval=timedelta(minutes=1) if TEST_EVERY_MINUTE else timedelta(minutes=5),
                 first=first_dt,
                 last=end_dt,
                 callback=tracking_callback,
@@ -1339,7 +1412,7 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
             jobs_scheduled += 1
             print(f"Scheduled morning job for user {user_id} (first={first_dt}, last={end_dt})")
         
-        # 10:30–13:30: every 5 minutes
+        # 10:30–13:30: repeating checks
         if current_time < _vn_time(13, 30):
             start_dt = datetime.combine(now.date(), _vn_time(10, 30))
             end_dt = datetime.combine(now.date(), _vn_time(13, 30))
@@ -1349,7 +1422,7 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
                 first_dt = now + timedelta(seconds=2)
             app.job_queue.run_repeating(
                 name=_track_job_name(user_id, "mid_5m"),
-                interval=timedelta(minutes=5),
+                interval=timedelta(minutes=1) if TEST_EVERY_MINUTE else timedelta(minutes=5),
                 first=first_dt,
                 last=end_dt,
                 callback=tracking_callback,
@@ -1358,7 +1431,7 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
             jobs_scheduled += 1
             print(f"Scheduled mid job for user {user_id} (first={first_dt}, last={end_dt})")
         
-        # 13:30–14:30: every 5 minutes
+        # 13:30–14:30: repeating checks
         if current_time < _vn_time(14, 30):
             start_dt = datetime.combine(now.date(), _vn_time(13, 30))
             end_dt = datetime.combine(now.date(), _vn_time(14, 30))
@@ -1368,7 +1441,7 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
                 first_dt = now + timedelta(seconds=2)
             app.job_queue.run_repeating(
                 name=_track_job_name(user_id, "late_5m"),
-                interval=timedelta(minutes=5),
+                interval=timedelta(minutes=1) if TEST_EVERY_MINUTE else timedelta(minutes=5),
                 first=first_dt,
                 last=end_dt,
                 callback=tracking_callback,
@@ -1611,7 +1684,7 @@ async def analyze_and_notify(application: Application, user_id: int, chat_id: st
         pred = await PredictionEngine.predict(symbol, investment_style)
         decision = pred.decision
         conf_pct = int(pred.confidence * 100)
-        price_str = f"{price:.2f}" if price is not None else "N/A"
+        price_str = f"{price:.2f} (real-time)" if price is not None else "N/A"
         pnl_val = (price - avg_cost) * qty if price is not None else None
         pnl_str = f"{pnl_val:.2f}" if pnl_val is not None else "N/A"
         
@@ -1662,6 +1735,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/add <mã> <số_lượng> <giá> <stoploss%> — mua thêm\n"
         "/sell <mã> <số_lượng> <giá> — bán\n"
         "/set_stoploss <mã> <phần trăm> — đặt stoploss cho từng cổ phiếu\n"
+        "/set_cost <mã> <giá_vốn> — cập nhật giá vốn cổ phiếu\n"
         "/portfolio — xem danh mục\n"
         "/pnl — thống kê lãi lỗ theo giá hiện tại\n"
         "/analyze_now — phân tích ngay và gợi ý hành động\n"
@@ -1761,14 +1835,14 @@ async def portfolio_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     # Build a simple monospaced table
     rows = []
-    header = ("Mã", "Số lượng", "Giá vốn", "Giá hiện tại", "Lãi/lỗ", "Stoploss")
+    header = ("Mã", "Số lượng", "Giá vốn", "Giá RT", "Lãi/lỗ", "Stoploss")
     rows.append(header)
     for symbol, qty, avg_cost in positions:
         # Recompute avg_cost using FIFO for accuracy after sells
         fifo_avg = await compute_effective_avg_cost_fifo(user_id, symbol)
         effective_avg = fifo_avg if fifo_avg is not None else avg_cost
         price = await MarketData.get_price(symbol)
-        price_str = f"{price:.2f}" if price is not None else "N/A"
+        price_str = f"{price:.2f} (RT)" if price is not None else "N/A"
         pnl_val = ((price - effective_avg) * qty) if price is not None else None
         pnl_str = f"{pnl_val:.2f}" if pnl_val is not None else "N/A"
         
@@ -1819,10 +1893,10 @@ async def pnl_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not report:
         await update.message.reply_text("Danh mục trống.")
         return
-    lines = ["PnL theo giá hiện tại:"]
+    lines = ["PnL theo giá real-time:"]
     total_pnl = 0.0
     for symbol, qty, avg_cost, price, pnl in report:
-        price_str = f"{price:.2f}" if price is not None else "N/A"
+        price_str = f"{price:.2f} (RT)" if price is not None else "N/A"
         pnl_str = f"{pnl:.2f}" if pnl is not None else "N/A"
         if pnl is not None:
             total_pnl += pnl
@@ -1860,6 +1934,9 @@ async def predict_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     processing_msg = await update.message.reply_text(f"🔍 Đang phân tích {symbol} ({style_text[investment_style.value]})...")
     
     try:
+        # Lấy giá real-time trước
+        real_time_price = await MarketData.get_price(symbol)
+        
         # Lấy dự đoán theo phong cách đầu tư
         pred = await PredictionEngine.predict(symbol, investment_style)
         
@@ -1869,6 +1946,12 @@ async def predict_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         lines.append(f"📊 Độ tin cậy: {pred.confidence*100:.1f}%")
         lines.append(f"💡 Lý do: {pred.rationale}")
         lines.append(f"⏰ Khung thời gian: {pred.timeframe}")
+        
+        # Hiển thị giá real-time
+        if real_time_price is not None:
+            lines.append(f"💰 Giá real-time: {real_time_price:.2f} VND")
+        else:
+            lines.append("💰 Giá real-time: Không có dữ liệu")
         
         # Thêm kịch bản
         if pred.scenarios:
@@ -1881,7 +1964,7 @@ async def predict_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             signals = pred.technical_signals
             lines.append("\n📊 Chỉ báo kỹ thuật:")
             if signals.get('current_price'):
-                lines.append(f"  • Giá hiện tại: {signals['current_price']:.2f}")
+                lines.append(f"  • Giá phân tích: {signals['current_price']:.2f} (từ dữ liệu lịch sử)")
             
             # Hiển thị MA phù hợp với timeframe
             if investment_style == InvestmentStyle.SHORT_TERM:
@@ -2088,6 +2171,52 @@ async def set_stoploss_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await update.message.reply_text(f"✅ Đã đặt stoploss {symbol}: {stoploss_pct*100:.1f}%")
 
 
+async def set_cost_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Set cost price for a specific stock in portfolio."""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    if len(context.args) != 2:
+        await update.message.reply_text("Cú pháp: /set_cost <mã> <giá_vốn>\nVí dụ: /set_cost VIC 45000")
+        return
+    
+    symbol = context.args[0].upper()
+    try:
+        new_cost = float(context.args[1])
+        if new_cost <= 0:
+            raise ValueError()
+    except ValueError:
+        await update.message.reply_text("Giá vốn phải là số dương")
+        return
+    
+    # Check if user has this stock in portfolio
+    positions = await get_positions(user_id)
+    position = next((pos for pos in positions if pos[0] == symbol), None)
+    if not position:
+        await update.message.reply_text(f"Bạn chưa có {symbol} trong danh mục.")
+        return
+    
+    _, quantity, old_cost = position
+    
+    # Update the cost price in database
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE positions SET avg_cost=? WHERE user_id=? AND symbol=?",
+            (new_cost, user_id, symbol),
+        )
+        await db.commit()
+    
+    if update.message:
+        await update.message.reply_text(
+            f"✅ Đã cập nhật giá vốn {symbol}:\n"
+            f"• Số lượng: {quantity:g}\n"
+            f"• Giá vốn cũ: {old_cost:.2f}\n"
+            f"• Giá vốn mới: {new_cost:.2f}\n"
+            f"• Chênh lệch: {new_cost - old_cost:+.2f}"
+        )
+    else:
+        print(f"Warning: update.message is None for set_cost_cmd")
+
+
 async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Restart the running bot process to load latest code."""
     # Inform user first
@@ -2212,6 +2341,11 @@ async def track_config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def track_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show scheduled tracking jobs and next run times for current user."""
     user_id = update.effective_user.id
+    # Ensure current chat is recorded to avoid stale chat_id issues
+    try:
+        await upsert_user(user_id, str(update.effective_chat.id))
+    except Exception:
+        pass
     jq = context.application.job_queue
     if jq is None:
         await update.message.reply_text("JobQueue is None")
@@ -2235,11 +2369,24 @@ async def track_now_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if jq is None:
         await update.message.reply_text("JobQueue is None")
         return
-    # schedule once after 2 seconds
+    # Ensure chat is recorded for this user
+    await upsert_user(user_id, chat_id)
+    # Remove any existing immediate job with the same name to allow re-scheduling
+    immediate_name = _track_job_name(user_id, "immediate")
+    for job in jq.get_jobs_by_name(immediate_name):
+        job.schedule_removal()
+    # Schedule once after ~2 seconds; use numeric seconds for maximum compatibility
     data = {'user_id': user_id, 'chat_id': chat_id, 'job_type': 'check_positions'}
-    when = datetime.now(VN_TZ) + timedelta(seconds=2)
-    jq.run_once(callback=tracking_callback, when=when, name=_track_job_name(user_id, "immediate"), data=data)
-    await update.message.reply_text("Đã schedule chạy thử sau 2 giây.")
+    jq.run_once(callback=tracking_callback, when=2, name=immediate_name, data=data)
+    await update.message.reply_text("Đã schedule chạy thử sau 2 giây. Đang chạy ngay bây giờ...")
+    # Also trigger immediately to avoid any scheduler edge cases
+    try:
+        await check_positions_and_alert(context.application, user_id, chat_id, force_status=True)
+    except Exception as e:
+        try:
+            await update.message.reply_text(f"❌ Lỗi khi chạy ngay: {e}")
+        except Exception:
+            pass
 
 
 async def track_ping_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2256,9 +2403,101 @@ async def track_now_summary_cmd(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("JobQueue is None")
         return
     data = {'user_id': user_id, 'chat_id': chat_id, 'job_type': 'summary'}
-    when = datetime.now(VN_TZ) + timedelta(seconds=2)
-    jq.run_once(callback=tracking_callback, when=when, name=_track_job_name(user_id, "immediate_summary"), data=data)
-    await update.message.reply_text("Đã schedule chạy thử SUMMARY sau 2 giây.")
+    # Remove any existing immediate summary job with the same name
+    immediate_sum_name = _track_job_name(user_id, "immediate_summary")
+    for job in jq.get_jobs_by_name(immediate_sum_name):
+        job.schedule_removal()
+    jq.run_once(callback=tracking_callback, when=2, name=immediate_sum_name, data=data)
+    await update.message.reply_text("Đã schedule chạy thử SUMMARY sau 2 giây. Đang chạy ngay bây giờ...")
+    # Also trigger immediately
+    try:
+        await summarize_eod_and_outlook(context.application, user_id, chat_id)
+    except Exception as e:
+        try:
+            await update.message.reply_text(f"❌ Lỗi khi chạy SUMMARY ngay: {e}")
+        except Exception:
+            pass
+
+
+async def track_bind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Bind auto-tracking messages to THIS chat and reschedule jobs."""
+    user_id = update.effective_user.id
+    chat_id = str(update.effective_chat.id)
+    try:
+        await upsert_user(user_id, chat_id)
+        # Reschedule tracking jobs to use the new chat binding
+        await schedule_tracking_jobs(context.application, user_id)
+        await update.message.reply_text("✅ Đã liên kết chat hiện tại để nhận thông báo tự động.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Không thể liên kết chat: {e}")
+
+async def test_price_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Test real-time price for a symbol."""
+    assert update.effective_user is not None
+    if len(context.args) != 1:
+        await update.message.reply_text("Cú pháp: /test_price <mã>\nVí dụ: /test_price VIC")
+        return
+    
+    symbol = context.args[0].upper()
+    await update.message.reply_text(f"🔍 Đang lấy giá real-time cho {symbol}...")
+    
+    try:
+        price = await MarketData.get_price(symbol)
+        if price is not None:
+            await update.message.reply_text(f"✅ Giá {symbol}: {price:.2f} VND")
+        else:
+            await update.message.reply_text(f"❌ Không thể lấy giá cho {symbol}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi: {str(e)}")
+
+
+async def debug_pnl_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Debug PnL calculation with detailed breakdown."""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    positions = await get_positions(user_id)
+    
+    if not positions:
+        await update.message.reply_text("Danh mục trống.")
+        return
+    
+    lines = ["🔍 Debug PnL Calculation:"]
+    total_pnl = 0.0
+    total_cost = 0.0
+    total_value = 0.0
+    
+    for symbol, qty, avg_cost in positions:
+        price = await MarketData.get_price(symbol)
+        if price is not None:
+            pnl = (price - avg_cost) * qty
+            cost_value = avg_cost * qty
+            current_value = price * qty
+            pnl_pct = ((price - avg_cost) / avg_cost) * 100
+            
+            total_pnl += pnl
+            total_cost += cost_value
+            total_value += current_value
+            
+            lines.append(f"\n📊 {symbol}:")
+            lines.append(f"  • Số lượng: {qty:g}")
+            lines.append(f"  • Giá vốn: {avg_cost:.2f}")
+            lines.append(f"  • Giá RT: {price:.2f}")
+            lines.append(f"  • Giá trị vốn: {cost_value:,.0f}")
+            lines.append(f"  • Giá trị hiện tại: {current_value:,.0f}")
+            lines.append(f"  • Lãi/lỗ: {pnl:,.0f} ({pnl_pct:+.2f}%)")
+        else:
+            lines.append(f"\n❌ {symbol}: Không có dữ liệu giá")
+    
+    lines.append(f"\n💰 Tổng kết:")
+    lines.append(f"  • Tổng vốn: {total_cost:,.0f}")
+    lines.append(f"  • Tổng giá trị: {total_value:,.0f}")
+    lines.append(f"  • Tổng lãi/lỗ: {total_pnl:,.0f}")
+    if total_cost > 0:
+        total_pnl_pct = (total_pnl / total_cost) * 100
+        lines.append(f"  • Lãi/lỗ %: {total_pnl_pct:+.2f}%")
+    
+    await update.message.reply_text("\n".join(lines))
+
 
 async def ui_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Launch Streamlit UI in the background and send the URL to the user."""
@@ -2367,9 +2606,18 @@ def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not set in environment.")
 
+    # Configure robust HTTP timeouts to avoid startup/network hiccups
+    httpx_request = HTTPXRequest(
+        connect_timeout=20.0,
+        read_timeout=60.0,
+        write_timeout=60.0,
+        pool_timeout=20.0,
+    )
+
     application: Application = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
+        .request(httpx_request)
         .defaults(Defaults(tzinfo=VN_TZ))
         .post_init(_post_init)
         .build()
@@ -2389,6 +2637,7 @@ def main() -> None:
     application.add_handler(CommandHandler("confirm_reset", confirm_reset_cmd))
     application.add_handler(CommandHandler("cancel_reset", cancel_reset_cmd))
     application.add_handler(CommandHandler("set_stoploss", set_stoploss_cmd))
+    application.add_handler(CommandHandler("set_cost", set_cost_cmd))
     application.add_handler(CommandHandler("restart", restart_cmd))
     application.add_handler(CommandHandler("ui", ui_cmd))
     application.add_handler(CommandHandler("track_on", track_on_cmd))
@@ -2398,8 +2647,14 @@ def main() -> None:
     application.add_handler(CommandHandler("track_now", track_now_cmd))
     application.add_handler(CommandHandler("track_ping", track_ping_cmd))
     application.add_handler(CommandHandler("track_now_summary", track_now_summary_cmd))
+    application.add_handler(CommandHandler("track_bind", track_bind_cmd))
 
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Add simple retry on startup timeout
+    try:
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except TimedOut:
+        print("Startup timed out once, retrying run_polling...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
