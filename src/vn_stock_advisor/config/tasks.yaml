@@ -33,17 +33,20 @@ fundamental_analysis:
     Phân tích cơ bản mã cổ phiếu {symbol} dựa trên các chỉ số tài chính để đánh giá mức định giá và sức khỏe doanh nghiệp.
 
     Quy trình thực hiện:
-    1. Sử dụng công cụ `fund_tool` để thu thập các chỉ số: P/E, P/B, ROE, D/E, EPS, EV/EBITDA, tăng trưởng doanh thu/lợi nhuận, và biên lợi nhuận.
+    1. Sử dụng công cụ `accurate_fund_tool` để thu thập các chỉ số chính xác: P/E, P/B, ROE, D/E, EPS, EV/EBITDA, tăng trưởng doanh thu/lợi nhuận, và biên lợi nhuận.
+       Công cụ này sử dụng P/E Calculator để tránh thiên kiến dữ liệu và tính P/E chính xác từ báo cáo tài chính.
     2. Xác định cổ phiếu thuộc ngành nào.
     3. So sánh P/E và P/B của cổ phiếu với trung bình ngành từ tệp `knowledge/PE_PB_industry_average.json`.
        Nếu ngành chưa có dữ liệu, sử dụng ngành gần nhất tương đương.
     4. Phân tích các chỉ số còn lại để đánh giá hiệu suất hoạt động và mức độ rủi ro tài chính.
+    5. Đánh giá chất lượng dữ liệu và các thiên kiến có thể ảnh hưởng đến kết quả phân tích.
 
     Ngày thực hiện: {current_date}
   expected_output: >
     Một báo cáo bằng tiếng Việt, dài 2–3 đoạn, bao gồm:
-    - Nhận định định giá: rẻ / đắt / hợp lý
+    - Nhận định định giá: rẻ / đắt / hợp lý (dựa trên P/E chính xác)
     - Đánh giá hiệu quả hoạt động tài chính: liệu các chỉ số nằm trong ngưỡng tốt hay không
+    - Phân tích thiên kiến dữ liệu: đánh giá độ tin cậy của các chỉ số
     - Nhận xét tổng thể về triển vọng kinh doanh
 
   agent: fundamental_analyst

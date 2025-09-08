@@ -4,6 +4,7 @@ from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.knowledge.source.json_knowledge_source import JSONKnowledgeSource
 from crewai_tools import SerperDevTool, ScrapeWebsiteTool, WebsiteSearchTool, FirecrawlScrapeWebsiteTool
 from vn_stock_advisor.tools.custom_tool import FundDataTool, TechDataTool, FileReadTool, SentimentAnalysisTool
+from vn_stock_advisor.tools.accurate_fundamental_tool import AccurateFundamentalTool
 from vn_stock_advisor.tools.macro_analysis_tool import macro_analysis_tool
 from pydantic import BaseModel, Field
 from typing import List, Literal
@@ -39,6 +40,7 @@ gemini_reasoning_llm = LLM(
 # Initialize the tools
 file_read_tool = FileReadTool(file_path="knowledge/PE_PB_industry_average.json")
 fund_tool=FundDataTool()
+accurate_fund_tool=AccurateFundamentalTool()
 tech_tool=TechDataTool(result_as_answer=True)
 sentiment_tool=SentimentAnalysisTool()
 scrape_tool = ScrapeWebsiteTool()
@@ -109,7 +111,7 @@ class VnStockAdvisor():
             config=self.agents_config["fundamental_analyst"],
             verbose=True,
             llm=gemini_llm,
-            tools=[fund_tool, file_read_tool],
+            tools=[accurate_fund_tool, file_read_tool],
             knowledge_sources=[json_source],
             max_rpm=5,
             embedder={

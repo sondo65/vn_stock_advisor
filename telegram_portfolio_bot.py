@@ -23,6 +23,14 @@ from telegram.ext import (
     JobQueue,
 )
 
+# Import P/E Calculator
+try:
+    from src.vn_stock_advisor.tools.pe_calculator import PECalculator
+    PE_CALCULATOR_AVAILABLE = True
+except ImportError:
+    PE_CALCULATOR_AVAILABLE = False
+    print("Warning: P/E Calculator not available in Telegram bot")
+
 
 load_dotenv()
 
@@ -746,6 +754,18 @@ class PredictionEngine:
                                 roe = latest_ratios.get('roe', None)
                             except Exception:
                                 pass
+                        
+                        # Sử dụng P/E Calculator để tính P/E chính xác
+                        if PE_CALCULATOR_AVAILABLE:
+                            try:
+                                pe_calculator = PECalculator()
+                                accurate_pe_data = pe_calculator.calculate_accurate_pe(symbol, use_diluted_eps=True)
+                                
+                                if accurate_pe_data and "pe_ratio" in accurate_pe_data and accurate_pe_data["pe_ratio"]:
+                                    pe_ratio = accurate_pe_data["pe_ratio"]
+                                    print(f"Using accurate P/E for {symbol}: {pe_ratio}")
+                            except Exception as e:
+                                print(f"Warning: Could not calculate accurate P/E for {symbol}: {e}")
                         
                         # Thử lấy market cap từ company_info
                         try:

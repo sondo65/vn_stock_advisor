@@ -6,6 +6,14 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 
+# Import P/E Calculator
+try:
+    from .pe_calculator import PECalculator
+    PE_CALCULATOR_AVAILABLE = True
+except ImportError:
+    PE_CALCULATOR_AVAILABLE = False
+    print("Warning: P/E Calculator not available")
+
 try:
     import talib as ta
     TA_AVAILABLE = True
@@ -135,6 +143,20 @@ class FundDataTool(BaseTool):
                 de = latest_ratios.get("debt_on_equity", "N/A")
                 profit_margin = latest_ratios.get("gross_profit_margin", "N/A")
                 evebitda = latest_ratios.get("value_before_ebitda", "N/A")
+            
+            # Calculate accurate P/E using P/E Calculator to avoid data bias
+            accurate_pe_data = None
+            if PE_CALCULATOR_AVAILABLE:
+                try:
+                    pe_calculator = PECalculator()
+                    accurate_pe_data = pe_calculator.calculate_accurate_pe(argument, use_diluted_eps=True)
+                    
+                    # Use accurate P/E if available
+                    if accurate_pe_data and "pe_ratio" in accurate_pe_data and accurate_pe_data["pe_ratio"]:
+                        pe_ratio = accurate_pe_data["pe_ratio"]
+                        eps = accurate_pe_data["eps_used"]
+                except Exception as e:
+                    print(f"Warning: Could not calculate accurate P/E: {e}")
 
                         # Format quarterly income data only if we have data
             if 'last_4_quarters' in locals() and not last_4_quarters.empty:
@@ -177,6 +199,21 @@ class FundDataTool(BaseTool):
             else:
                 quarterly_trends = ["Không có dữ liệu báo cáo thu nhập"]
             
+            # Add P/E bias analysis if available
+            pe_bias_info = ""
+            if accurate_pe_data and "pe_difference" in accurate_pe_data and accurate_pe_data["pe_difference"]:
+                pe_difference = accurate_pe_data["pe_difference"]
+                if abs(pe_difference) > 0.5:
+                    pe_bias_info = f"""
+            
+            ⚠️ PHÂN TÍCH THIÊN KIẾN P/E:
+            - P/E chính xác: {accurate_pe_data.get('pe_ratio', 'N/A')}
+            - P/E từ nguồn: {accurate_pe_data.get('source_pe', 'N/A')}
+            - Chênh lệch: {pe_difference:.2f}
+            - Phương pháp: {accurate_pe_data.get('calculation_method', 'N/A')}
+            - Cập nhật: {accurate_pe_data.get('last_updated', 'N/A')}
+            """
+            
             return f"""Mã cổ phiếu: {argument}
             Tên công ty: {full_name}
             Ngành: {industry}
@@ -190,6 +227,7 @@ class FundDataTool(BaseTool):
             Lợi nhuận trên mỗi cổ phiếu EPS (VND): {eps}
             Hệ số nợ trên vốn chủ sở hữu D/E: {de}
             Tỷ lệ EV/EBITDA: {evebitda}
+            {pe_bias_info}
 
             XU HƯỚNG 4 QUÝ GẦN NHẤT:
             {"".join(quarterly_trends)}
