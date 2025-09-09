@@ -34,6 +34,14 @@ except ImportError:
     PE_CALCULATOR_AVAILABLE = False
     print("Warning: P/E Calculator not available in Telegram bot")
 
+# Import Market Analysis
+try:
+    from src.vn_stock_advisor.market_analysis.daily_market_report import get_daily_market_report_message
+    MARKET_ANALYSIS_AVAILABLE = True
+except ImportError:
+    MARKET_ANALYSIS_AVAILABLE = False
+    print("Warning: Market Analysis not available in Telegram bot")
+
 
 load_dotenv()
 
@@ -46,6 +54,11 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 DEFAULT_CHAT_ID = os.getenv("DEFAULT_CHAT_ID")
 # Test mode: if set to 1, schedule tracking every minute and send status every minute
 TEST_EVERY_MINUTE = os.getenv("TRACKING_TEST_MINUTE", "0") == "1"
+
+# Market Analysis API Keys
+SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # Vietnam timezone for all scheduling
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -1346,6 +1359,74 @@ async def tracking_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             print(f"❌ Error sending error message: {e2}")
 
 
+async def daily_market_report_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback for daily market report job."""
+    try:
+        job = ctx.job
+        user_id = job.data.get('user_id')
+        chat_id = job.data.get('chat_id')
+        
+        print(f"📊 DAILY MARKET REPORT CALLBACK TRIGGERED! User: {user_id}")
+        
+        if not user_id or not chat_id:
+            print(f"Market report callback: Missing user_id or chat_id in job data")
+            return
+        
+        # Check if market analysis is available
+        if not MARKET_ANALYSIS_AVAILABLE:
+            await ctx.application.bot.send_message(
+                chat_id=chat_id,
+                text="❌ Chức năng phân tích thị trường chưa khả dụng. Vui lòng kiểm tra cài đặt API keys."
+            )
+            return
+        
+        # Check if we have required API keys
+        if not SERPER_API_KEY:
+            await ctx.application.bot.send_message(
+                chat_id=chat_id,
+                text="❌ Thiếu SERPER_API_KEY. Vui lòng cấu hình API key để sử dụng chức năng phân tích thị trường."
+            )
+            return
+        
+        # Generate and send market report
+        try:
+            message = await get_daily_market_report_message(
+                SERPER_API_KEY, 
+                GEMINI_API_KEY if GEMINI_API_KEY else None, 
+                OPENAI_API_KEY if OPENAI_API_KEY else None
+            )
+            
+            await ctx.application.bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode=ParseMode.HTML
+            )
+            
+            print(f"✅ Daily market report sent successfully to user {user_id}")
+            
+        except Exception as e:
+            print(f"❌ Error generating market report: {e}")
+            await ctx.application.bot.send_message(
+                chat_id=chat_id,
+                text=f"❌ Lỗi khi tạo báo cáo thị trường: {str(e)}"
+            )
+            
+    except Exception as e:
+        print(f"❌ Error in daily market report callback: {e}")
+        # Try to send error message to user if possible
+        try:
+            job = ctx.job
+            user_id = job.data.get('user_id')
+            chat_id = job.data.get('chat_id')
+            if user_id and chat_id:
+                await ctx.application.bot.send_message(
+                    chat_id=chat_id, 
+                    text=f"❌ Lỗi trong báo cáo thị trường hàng ngày: {str(e)}"
+                )
+        except Exception as e2:
+            print(f"❌ Error sending error message: {e2}")
+
+
 async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
     try:
         # Check if job queue exists
@@ -1481,6 +1562,39 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
         print(f"Error scheduling tracking jobs for user {user_id}: {e}")
 
 
+async def schedule_daily_market_report(app: Application, user_id: int) -> None:
+    """Schedule daily market report at 8:15 AM VN time"""
+    try:
+        if app.job_queue is None:
+            print(f"Schedule market report: JobQueue is None for user {user_id}")
+            return
+            
+        chat_id = await get_user_chat_id(user_id)
+        if not chat_id:
+            print(f"Schedule market report: No chat_id found for user {user_id}")
+            return
+        
+        # Remove old market report jobs
+        job_name = f"daily_market_report_{user_id}"
+        for job in app.job_queue.get_jobs_by_name(job_name):
+            job.schedule_removal()
+        
+        # Schedule daily market report at 8:15 AM VN time
+        job_data = {'user_id': user_id, 'chat_id': chat_id}
+        
+        app.job_queue.run_daily(
+            name=job_name,
+            time=_vn_time(8, 15),
+            callback=daily_market_report_callback,
+            data=job_data,
+        )
+        
+        print(f"✅ Scheduled daily market report for user {user_id} at 8:15 AM VN time")
+        
+    except Exception as e:
+        print(f"Error scheduling daily market report for user {user_id}: {e}")
+
+
 async def bootstrap_tracking(app: Application) -> None:
     try:
         print("Bootstrap tracking: Starting...")
@@ -1493,6 +1607,21 @@ async def bootstrap_tracking(app: Application) -> None:
         print("Bootstrap tracking: Completed")
     except Exception as e:
         print(f"Error in bootstrap_tracking: {e}")
+
+
+async def bootstrap_market_reports(app: Application) -> None:
+    """Bootstrap daily market reports for all users"""
+    try:
+        print("Bootstrap market reports: Starting...")
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT DISTINCT user_id FROM users") as cur:
+                rows = await cur.fetchall()
+                print(f"Bootstrap market reports: Found {len(rows)} users")
+                for (uid,) in rows:
+                    await schedule_daily_market_report(app, int(uid))
+        print("Bootstrap market reports: Completed")
+    except Exception as e:
+        print(f"Error in bootstrap_market_reports: {e}")
 
 
 async def add_transaction_and_update_position(
@@ -1758,6 +1887,13 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "⛔ Stoploss: tự động theo dõi từng cổ phiếu\n"
         "🚀 Breakout: gợi ý mua thêm khi xác nhận\n"
         "🔮 Dự đoán: phân tích kỹ thuật với kịch bản xác suất\n"
+        "\n"
+        "📈 Phân tích thị trường:\n"
+        "/market_report — báo cáo thị trường ngay lập tức\n"
+        "/market_report_schedule — lên lịch báo cáo 8h15 hàng ngày\n"
+        "/market_report_off — tắt báo cáo tự động\n"
+        "🔍 Tích hợp SERPER + Gemini/OpenAI cho phân tích tin tức\n"
+        "📊 Dự báo VN-Index dựa trên sentiment + kỹ thuật\n"
         "\n"
         "💡 Phong cách đầu tư (theo từng cổ phiếu):\n"
         "• SHORT_TERM: 1-2 tuần, trading T+, dữ liệu 3 tháng\n"
@@ -2431,6 +2567,93 @@ async def track_bind_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     except Exception as e:
         await update.message.reply_text(f"❌ Không thể liên kết chat: {e}")
 
+
+async def market_report_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate and send immediate market report."""
+    if not MARKET_ANALYSIS_AVAILABLE:
+        await update.message.reply_text(
+            "❌ Chức năng phân tích thị trường chưa khả dụng.\n"
+            "Vui lòng kiểm tra cài đặt API keys trong môi trường."
+        )
+        return
+    
+    if not SERPER_API_KEY:
+        await update.message.reply_text(
+            "❌ Thiếu SERPER_API_KEY.\n"
+            "Vui lòng cấu hình SERPER_API_KEY trong file .env để sử dụng chức năng này."
+        )
+        return
+    
+    # Send processing message
+    processing_msg = await update.message.reply_text("🔍 Đang phân tích thị trường...")
+    
+    try:
+        message = await get_daily_market_report_message(
+            SERPER_API_KEY,
+            GEMINI_API_KEY if GEMINI_API_KEY else None,
+            OPENAI_API_KEY if OPENAI_API_KEY else None
+        )
+        
+        await processing_msg.edit_text(message, parse_mode=ParseMode.HTML)
+        
+    except Exception as e:
+        await processing_msg.edit_text(f"❌ Lỗi khi tạo báo cáo thị trường: {str(e)}")
+
+
+async def market_report_schedule_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Schedule daily market report for user."""
+    user_id = update.effective_user.id
+    chat_id = str(update.effective_chat.id)
+    
+    try:
+        # Ensure user is registered
+        await upsert_user(user_id, chat_id)
+        
+        # Schedule daily market report
+        await schedule_daily_market_report(context.application, user_id)
+        
+        await update.message.reply_text(
+            "✅ **Đã lên lịch báo cáo thị trường hàng ngày!**\n\n"
+            "📊 Bot sẽ gửi báo cáo phân tích thị trường vào **8:15 sáng** hàng ngày.\n\n"
+            "🔍 Báo cáo bao gồm:\n"
+            "• Dự báo xu hướng VN-Index\n"
+            "• Phân tích tin tức trong nước & quốc tế\n"
+            "• Tín hiệu kỹ thuật\n"
+            "• Khuyến nghị đầu tư\n\n"
+            "Sử dụng `/market_report` để xem báo cáo ngay lập tức.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi khi lên lịch báo cáo: {str(e)}")
+
+
+async def market_report_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Disable daily market report for user."""
+    user_id = update.effective_user.id
+    
+    try:
+        # Remove market report jobs
+        job_name = f"daily_market_report_{user_id}"
+        jobs_removed = 0
+        for job in context.application.job_queue.get_jobs_by_name(job_name):
+            job.schedule_removal()
+            jobs_removed += 1
+        
+        if jobs_removed > 0:
+            await update.message.reply_text(
+                "❌ **Đã tắt báo cáo thị trường hàng ngày!**\n\n"
+                "Bot sẽ không gửi báo cáo tự động nữa.\n"
+                "Sử dụng `/market_report_schedule` để bật lại."
+            )
+        else:
+            await update.message.reply_text(
+                "ℹ️ Không có báo cáo thị trường nào đang được lên lịch."
+            )
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi khi tắt báo cáo: {str(e)}")
+
 async def test_price_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Test real-time price for a symbol."""
     assert update.effective_user is not None
@@ -2599,6 +2822,7 @@ async def _post_init(application: Application) -> None:
     
     await bootstrap_schedules(application)
     await bootstrap_tracking(application)
+    await bootstrap_market_reports(application)
     await push_to_default_chat_if_set(application, "Bot đã khởi động trên máy local.")
 
 
@@ -2648,6 +2872,9 @@ def main() -> None:
     application.add_handler(CommandHandler("track_ping", track_ping_cmd))
     application.add_handler(CommandHandler("track_now_summary", track_now_summary_cmd))
     application.add_handler(CommandHandler("track_bind", track_bind_cmd))
+    application.add_handler(CommandHandler("market_report", market_report_cmd))
+    application.add_handler(CommandHandler("market_report_schedule", market_report_schedule_cmd))
+    application.add_handler(CommandHandler("market_report_off", market_report_off_cmd))
 
     # Add simple retry on startup timeout
     try:

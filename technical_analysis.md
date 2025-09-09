@@ -1,7 +1,7 @@
 
 I encountered an error while trying to use the tool. This was the error: Arguments validation failed: 1 validation error for MyToolInput
 argument
-  Input should be a valid string [type=string_type, input_value={'Mã cổ phiếu': 'MSB'}, input_type=dict]
+  Input should be a valid string [type=string_type, input_value={'Mã cổ phiếu': 'HPG'}, input_type=dict]
     For further information visit https://errors.pydantic.dev/2.11/v/string_type.
  Tool Công cụ tra cứu dữ liệu cổ phiếu phục vụ phân tích kĩ thuật. accepts these inputs: Tool Name: Công cụ tra cứu dữ liệu cổ phiếu phục vụ phân tích kĩ thuật.
 Tool Arguments: {'argument': {'description': 'Mã cổ phiếu.', 'type': 'str'}}
