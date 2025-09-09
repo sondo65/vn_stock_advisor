@@ -967,6 +967,19 @@ CREATE_TABLES_SQL = [
         FOREIGN KEY(user_id) REFERENCES users(user_id)
     );
     """,
+    """
+    CREATE TABLE IF NOT EXISTS tracking_trailing_stop (
+        user_id INTEGER NOT NULL,
+        symbol TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        trailing_pct REAL NOT NULL DEFAULT 0.10,
+        highest_price REAL NOT NULL DEFAULT 0.0,
+        trailing_stop_price REAL NOT NULL DEFAULT 0.0,
+        last_updated TEXT NOT NULL,
+        PRIMARY KEY (user_id, symbol),
+        FOREIGN KEY(user_id) REFERENCES users(user_id)
+    );
+    """,
 ]
 
 
@@ -1107,6 +1120,102 @@ async def get_all_stock_styles(user_id: int) -> Dict[str, InvestmentStyle]:
             return result
 
 
+async def get_trailing_stop_settings(user_id: int, symbol: str) -> Optional[Dict[str, Any]]:
+    """Get trailing stop settings for a specific stock."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT enabled, trailing_pct, highest_price, trailing_stop_price, last_updated FROM tracking_trailing_stop WHERE user_id=? AND symbol=?",
+            (user_id, symbol),
+        ) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return None
+            return {
+                'enabled': bool(row[0]),
+                'trailing_pct': float(row[1]),
+                'highest_price': float(row[2]),
+                'trailing_stop_price': float(row[3]),
+                'last_updated': row[4]
+            }
+
+
+async def set_trailing_stop_settings(
+    user_id: int, 
+    symbol: str, 
+    enabled: bool, 
+    trailing_pct: float,
+    highest_price: Optional[float] = None,
+    trailing_stop_price: Optional[float] = None
+) -> None:
+    """Set trailing stop settings for a specific stock."""
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # If highest_price and trailing_stop_price not provided, calculate from current price
+    if highest_price is None or trailing_stop_price is None:
+        current_price = await MarketData.get_price(symbol)
+        if current_price is None:
+            raise ValueError(f"Không thể lấy giá hiện tại cho {symbol}")
+        
+        if highest_price is None:
+            highest_price = current_price
+        if trailing_stop_price is None:
+            trailing_stop_price = highest_price * (1 - trailing_pct)
+    
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO tracking_trailing_stop (user_id, symbol, enabled, trailing_pct, highest_price, trailing_stop_price, last_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, symbol, 1 if enabled else 0, trailing_pct, highest_price, trailing_stop_price, now),
+        )
+        await db.commit()
+
+
+async def update_trailing_stop_price(user_id: int, symbol: str, current_price: float) -> Optional[float]:
+    """Update trailing stop price based on current price. Returns new trailing stop price if updated."""
+    settings = await get_trailing_stop_settings(user_id, symbol)
+    if not settings or not settings['enabled']:
+        return None
+    
+    trailing_pct = settings['trailing_pct']
+    current_highest = settings['highest_price']
+    current_trailing_stop = settings['trailing_stop_price']
+    
+    # If current price is higher than highest price, update both
+    if current_price > current_highest:
+        new_trailing_stop = current_price * (1 - trailing_pct)
+        await set_trailing_stop_settings(
+            user_id, symbol, True, trailing_pct, 
+            current_price, new_trailing_stop
+        )
+        return new_trailing_stop
+    
+    # If current price is still above trailing stop, no update needed
+    if current_price > current_trailing_stop:
+        return current_trailing_stop
+    
+    # Price has fallen below trailing stop - return current trailing stop for sell signal
+    return current_trailing_stop
+
+
+async def get_all_trailing_stops(user_id: int) -> Dict[str, Dict[str, Any]]:
+    """Get trailing stop settings for all stocks in user's portfolio."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT symbol, enabled, trailing_pct, highest_price, trailing_stop_price, last_updated FROM tracking_trailing_stop WHERE user_id=?",
+            (user_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+            result = {}
+            for row in rows:
+                result[row[0]] = {
+                    'enabled': bool(row[1]),
+                    'trailing_pct': float(row[2]),
+                    'highest_price': float(row[3]),
+                    'trailing_stop_price': float(row[4]),
+                    'last_updated': row[5]
+                }
+            return result
+
+
 async def get_price_and_volume(symbol: str, vol_ma_days: int) -> tuple[Optional[float], Optional[float], Optional[float]]:
     # First try to get real-time price
     try:
@@ -1191,30 +1300,52 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
             print(f"  {symbol}: No price data available")
             continue
         
-        # Use individual stoploss for this stock
-        individual_sl_pct = await get_stock_stoploss(user_id, symbol)
-        sl_price = avg_cost * (1 - individual_sl_pct)
-        tp_price = avg_cost * (1 + tp_pct)
+        # Check trailing stop first (if enabled)
+        trailing_settings = await get_trailing_stop_settings(user_id, symbol)
+        trailing_triggered = False
+        trailing_stop_price = None
         
-        print(f"  {symbol}: Price={price:.2f}, AvgCost={avg_cost:.2f}, SL={sl_price:.2f} ({individual_sl_pct*100:.0f}%), TP={tp_price:.2f} ({tp_pct*100:.0f}%)")
+        if trailing_settings and trailing_settings['enabled']:
+            # Update trailing stop price based on current price
+            new_trailing_stop = await update_trailing_stop_price(user_id, symbol, price)
+            if new_trailing_stop is not None:
+                trailing_stop_price = new_trailing_stop
+                if price <= trailing_stop_price:
+                    trailing_triggered = True
+                    any_signal = True
+                    lines.append(f"- {symbol}: 🎯 Trailing Stop kích hoạt! Giá RT {price:.2f} ≤ {trailing_stop_price:.2f} (trailing {trailing_settings['trailing_pct']*100:.0f}%). Gợi ý: SELL để chốt lời.")
+                    print(f"  {symbol}: TRAILING STOP TRIGGERED! Price={price:.2f} <= TrailingStop={trailing_stop_price:.2f}")
+        
+        # If trailing stop not triggered, check regular stoploss
+        if not trailing_triggered:
+            # Use individual stoploss for this stock
+            individual_sl_pct = await get_stock_stoploss(user_id, symbol)
+            sl_price = avg_cost * (1 - individual_sl_pct)
+            tp_price = avg_cost * (1 + tp_pct)
+            
+            print(f"  {symbol}: Price={price:.2f}, AvgCost={avg_cost:.2f}, SL={sl_price:.2f} ({individual_sl_pct*100:.0f}%), TP={tp_price:.2f} ({tp_pct*100:.0f}%)")
 
-        if price <= sl_price:
-            any_signal = True
-            lines.append(f"- {symbol}: ⛔ Stoploss kích hoạt. Giá RT {price:.2f} ≤ {sl_price:.2f} ({individual_sl_pct*100:.0f}%). Gợi ý: SELL.")
-            print(f"  {symbol}: STOPLOSS TRIGGERED!")
-            # Optional: auto record sell in DB (requires confirmation policy)
-            # await add_transaction_and_update_position(user_id, symbol, "SELL", qty, price)
-        elif price >= tp_price:
-            vol_ok = (vol is not None and vol_ma is not None and vol > vol_ma) or (vol is None or vol_ma is None)
-            if vol_ok:
+            if price <= sl_price:
                 any_signal = True
-                lines.append(f"- {symbol}: ✅ Breakout xác nhận. Giá RT {price:.2f} ≥ {tp_price:.2f}{' & vol>MA' if (vol is not None and vol_ma is not None) else ''}. Gợi ý: BUY_MORE.")
-                print(f"  {symbol}: BREAKOUT CONFIRMED!")
+                lines.append(f"- {symbol}: ⛔ Stoploss kích hoạt. Giá RT {price:.2f} ≤ {sl_price:.2f} ({individual_sl_pct*100:.0f}%). Gợi ý: SELL.")
+                print(f"  {symbol}: STOPLOSS TRIGGERED!")
+                # Optional: auto record sell in DB (requires confirmation policy)
+                # await add_transaction_and_update_position(user_id, symbol, "SELL", qty, price)
+            elif price >= tp_price:
+                vol_ok = (vol is not None and vol_ma is not None and vol > vol_ma) or (vol is None or vol_ma is None)
+                if vol_ok:
+                    any_signal = True
+                    lines.append(f"- {symbol}: ✅ Breakout xác nhận. Giá RT {price:.2f} ≥ {tp_price:.2f}{' & vol>MA' if (vol is not None and vol_ma is not None) else ''}. Gợi ý: BUY_MORE.")
+                    print(f"  {symbol}: BREAKOUT CONFIRMED!")
+                else:
+                    lines.append(f"- {symbol}: Giá RT {price:.2f} ≥ {tp_price:.2f} nhưng vol chưa xác nhận (vol≤MA). Theo dõi thêm.")
+                    print(f"  {symbol}: Breakout but volume not confirmed")
             else:
-                lines.append(f"- {symbol}: Giá RT {price:.2f} ≥ {tp_price:.2f} nhưng vol chưa xác nhận (vol≤MA). Theo dõi thêm.")
-                print(f"  {symbol}: Breakout but volume not confirmed")
-        else:
-            print(f"  {symbol}: No signal (price between SL and TP)")
+                print(f"  {symbol}: No signal (price between SL and TP)")
+        
+        # Show trailing stop status if enabled
+        if trailing_settings and trailing_settings['enabled'] and not trailing_triggered:
+            print(f"  {symbol}: Trailing Stop active - Highest: {trailing_settings['highest_price']:.2f}, Trailing Stop: {trailing_stop_price:.2f}")
 
     if any_signal:
         try:
@@ -1233,13 +1364,24 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
             for symbol, qty, avg_cost in positions:
                 price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days)
                 if price is not None:
-                    individual_sl_pct = await get_stock_stoploss(user_id, symbol)
-                    sl_price = avg_cost * (1 - individual_sl_pct)
-                    tp_price = avg_cost * (1 + tp_pct)
-                    pnl = (price - avg_cost) * qty
-                    pnl_pct = ((price - avg_cost) / avg_cost) * 100
-                    
-                    status_lines.append(f"• {symbol}: {price:.2f} (SL: {sl_price:.2f}, TP: {tp_price:.2f}) - PnL: {pnl:+.2f} ({pnl_pct:+.1f}%)")
+                    # Check if trailing stop is enabled
+                    trailing_settings = await get_trailing_stop_settings(user_id, symbol)
+                    if trailing_settings and trailing_settings['enabled']:
+                        # Update trailing stop and get current trailing stop price
+                        trailing_stop_price = await update_trailing_stop_price(user_id, symbol, price)
+                        if trailing_stop_price is not None:
+                            pnl = (price - avg_cost) * qty
+                            pnl_pct = ((price - avg_cost) / avg_cost) * 100
+                            status_lines.append(f"• {symbol}: {price:.2f} (Trailing: {trailing_stop_price:.2f}, Highest: {trailing_settings['highest_price']:.2f}) - PnL: {pnl:+.2f} ({pnl_pct:+.1f}%)")
+                    else:
+                        # Regular stoploss
+                        individual_sl_pct = await get_stock_stoploss(user_id, symbol)
+                        sl_price = avg_cost * (1 - individual_sl_pct)
+                        tp_price = avg_cost * (1 + tp_pct)
+                        pnl = (price - avg_cost) * qty
+                        pnl_pct = ((price - avg_cost) / avg_cost) * 100
+                        
+                        status_lines.append(f"• {symbol}: {price:.2f} (SL: {sl_price:.2f}, TP: {tp_price:.2f}) - PnL: {pnl:+.2f} ({pnl_pct:+.1f}%)")
             
             try:
                 await app.bot.send_message(chat_id=chat_id, text="\n".join(status_lines))
@@ -1865,6 +2007,8 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/sell <mã> <số_lượng> <giá> — bán\n"
         "/set_stoploss <mã> <phần trăm> — đặt stoploss cho từng cổ phiếu\n"
         "/set_cost <mã> <giá_vốn> — cập nhật giá vốn cổ phiếu\n"
+        "/set_trailing_stop <mã> <phần_trăm> [on/off] — đặt trailing stop động\n"
+        "/trailing_config — xem cấu hình trailing stop\n"
         "/portfolio — xem danh mục\n"
         "/pnl — thống kê lãi lỗ theo giá hiện tại\n"
         "/analyze_now — phân tích ngay và gợi ý hành động\n"
@@ -1883,8 +2027,13 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "📊 Tracking tự động:\n"
         "/track_on — bật tracking tự động\n"
         "/track_off — tắt tracking tự động\n"
+        "/track_now — tracking ngay lập tức\n"
+        "/track_ping — kiểm tra tracking\n"
+        "/track_now_summary — tracking ngay lập tức và tóm tắt cuối ngày\n"
+        "/track_bind — gắn tracking với chat\n"
         "/track_config — xem cấu hình tracking\n"
         "⛔ Stoploss: tự động theo dõi từng cổ phiếu\n"
+        "🎯 Trailing Stop: dừng lỗ động, bảo vệ lợi nhuận\n"
         "🚀 Breakout: gợi ý mua thêm khi xác nhận\n"
         "🔮 Dự đoán: phân tích kỹ thuật với kịch bản xác suất\n"
         "\n"
@@ -1902,6 +2051,13 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "\n"
         "📝 Ví dụ: /set_style VIC LONG_TERM (đầu tư dài hạn VIC)\n"
         "📝 Ví dụ: /set_style FPT SHORT_TERM (trading ngắn hạn FPT)\n"
+        "\n"
+        "🎯 Trailing Stop (Dừng lỗ động):\n"
+        "• Mua HPG 30, đặt trailing stop 10%\n"
+        "• Giá tăng 36 → trailing stop = 32.4 (36-10%)\n"
+        "• Giá giảm 32.4 → bán chốt lời +8%\n"
+        "• Bảo vệ lợi nhuận, hạn chế rủi ro\n"
+        "📝 Ví dụ: /set_trailing_stop HPG 0.10 (10% trailing stop)\n"
     )
     await update.message.reply_text(text)
 
@@ -1971,7 +2127,7 @@ async def portfolio_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     # Build a simple monospaced table
     rows = []
-    header = ("Mã", "Số lượng", "Giá vốn", "Giá RT", "Lãi/lỗ", "Stoploss")
+    header = ("Mã", "Số lượng", "Giá vốn", "Giá RT", "Lãi/lỗ", "Stoploss/Trailing")
     rows.append(header)
     for symbol, qty, avg_cost in positions:
         # Recompute avg_cost using FIFO for accuracy after sells
@@ -1982,11 +2138,22 @@ async def portfolio_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         pnl_val = ((price - effective_avg) * qty) if price is not None else None
         pnl_str = f"{pnl_val:.2f}" if pnl_val is not None else "N/A"
         
-        # Get individual stoploss setting for this stock
-        stoploss_pct = await get_stock_stoploss(user_id, symbol)
-        stoploss_val = effective_avg * (1 - stoploss_pct)
-        stoploss_str = f"{stoploss_val:.2f} ({stoploss_pct*100:.0f}%)"
-        rows.append((symbol, f"{qty:g}", f"{effective_avg:.2f}", price_str, pnl_str, stoploss_str))
+        # Check if trailing stop is enabled
+        trailing_settings = await get_trailing_stop_settings(user_id, symbol)
+        if trailing_settings and trailing_settings['enabled']:
+            # Update trailing stop to get current values
+            trailing_stop_price = await update_trailing_stop_price(user_id, symbol, price) if price else None
+            if trailing_stop_price:
+                trailing_str = f"T:{trailing_stop_price:.2f} ({trailing_settings['trailing_pct']*100:.0f}%)"
+            else:
+                trailing_str = f"T:Active ({trailing_settings['trailing_pct']*100:.0f}%)"
+        else:
+            # Regular stoploss
+            stoploss_pct = await get_stock_stoploss(user_id, symbol)
+            stoploss_val = effective_avg * (1 - stoploss_pct)
+            trailing_str = f"SL:{stoploss_val:.2f} ({stoploss_pct*100:.0f}%)"
+        
+        rows.append((symbol, f"{qty:g}", f"{effective_avg:.2f}", price_str, pnl_str, trailing_str))
 
     # Column widths
     col_widths = [0, 0, 0, 0, 0, 0]
@@ -2351,6 +2518,117 @@ async def set_cost_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
     else:
         print(f"Warning: update.message is None for set_cost_cmd")
+
+
+async def set_trailing_stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Set trailing stop for a specific stock."""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Cú pháp: /set_trailing_stop <mã> <phần_trăm> [on/off]\n"
+            "Ví dụ: /set_trailing_stop VIC 0.10 on (10% trailing stop)\n"
+            "Ví dụ: /set_trailing_stop VIC 0.10 off (tắt trailing stop)\n"
+            "Ví dụ: /set_trailing_stop VIC 0.10 (bật trailing stop với 10%)"
+        )
+        return
+    
+    symbol = context.args[0].upper()
+    try:
+        trailing_pct = float(context.args[1])
+        if trailing_pct <= 0 or trailing_pct > 1:
+            raise ValueError()
+    except ValueError:
+        await update.message.reply_text("Phần trăm trailing stop phải từ 0.01 đến 1.0 (1% đến 100%)")
+        return
+    
+    # Check if user has this stock in portfolio
+    positions = await get_positions(user_id)
+    if not any(pos[0] == symbol for pos in positions):
+        await update.message.reply_text(f"Bạn chưa có {symbol} trong danh mục.")
+        return
+    
+    # Check enable/disable flag
+    enabled = True
+    if len(context.args) >= 3:
+        flag = context.args[2].lower()
+        if flag == "off":
+            enabled = False
+        elif flag == "on":
+            enabled = True
+        else:
+            await update.message.reply_text("Flag phải là 'on' hoặc 'off'")
+            return
+    
+    try:
+        if enabled:
+            # Get current price to set initial trailing stop
+            current_price = await MarketData.get_price(symbol)
+            if current_price is None:
+                await update.message.reply_text(f"Không thể lấy giá hiện tại cho {symbol}")
+                return
+            
+            await set_trailing_stop_settings(user_id, symbol, True, trailing_pct)
+            
+            await update.message.reply_text(
+                f"✅ Đã bật Trailing Stop cho {symbol}:\n"
+                f"• Phần trăm: {trailing_pct*100:.1f}%\n"
+                f"• Giá hiện tại: {current_price:.2f}\n"
+                f"• Trailing Stop: {current_price * (1 - trailing_pct):.2f}\n"
+                f"• Highest Price: {current_price:.2f}\n\n"
+                f"🎯 Trailing Stop sẽ tự động điều chỉnh khi giá tăng và bảo vệ lợi nhuận khi giá giảm."
+            )
+        else:
+            await set_trailing_stop_settings(user_id, symbol, False, trailing_pct)
+            await update.message.reply_text(f"❌ Đã tắt Trailing Stop cho {symbol}")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi khi cài đặt trailing stop: {str(e)}")
+
+
+async def trailing_config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show trailing stop configuration for all stocks."""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    positions = await get_positions(user_id)
+    if not positions:
+        await update.message.reply_text("Danh mục trống. Thêm cổ phiếu trước khi cài đặt trailing stop.")
+        return
+    
+    trailing_stops = await get_all_trailing_stops(user_id)
+    
+    lines = ["🎯 **Cấu hình Trailing Stop:**\n"]
+    
+    for symbol, qty, avg_cost in positions:
+        trailing_info = trailing_stops.get(symbol)
+        if trailing_info and trailing_info['enabled']:
+            current_price = await MarketData.get_price(symbol)
+            if current_price:
+                # Update trailing stop to get current values
+                current_trailing = await update_trailing_stop_price(user_id, symbol, current_price)
+                if current_trailing:
+                    pnl_pct = ((current_price - avg_cost) / avg_cost) * 100
+                    lines.append(
+                        f"• **{symbol}**: {current_price:.2f} "
+                        f"(Trailing: {current_trailing:.2f}, Highest: {trailing_info['highest_price']:.2f}) "
+                        f"- {trailing_info['trailing_pct']*100:.1f}% - PnL: {pnl_pct:+.1f}%"
+                    )
+                else:
+                    lines.append(f"• **{symbol}**: Trailing Stop đã kích hoạt")
+            else:
+                lines.append(f"• **{symbol}**: {trailing_info['trailing_pct']*100:.1f}% (Không có dữ liệu giá)")
+        else:
+            lines.append(f"• **{symbol}**: Chưa bật Trailing Stop")
+    
+    lines.append("\n💡 **Hướng dẫn:**")
+    lines.append("• `/set_trailing_stop <mã> <phần_trăm>` - Bật trailing stop")
+    lines.append("• `/set_trailing_stop <mã> <phần_trăm> off` - Tắt trailing stop")
+    lines.append("• Trailing stop tự động điều chỉnh theo giá cao nhất")
+    lines.append("• Khi giá giảm chạm trailing stop → Gợi ý SELL")
+    
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
 async def restart_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2862,6 +3140,8 @@ def main() -> None:
     application.add_handler(CommandHandler("cancel_reset", cancel_reset_cmd))
     application.add_handler(CommandHandler("set_stoploss", set_stoploss_cmd))
     application.add_handler(CommandHandler("set_cost", set_cost_cmd))
+    application.add_handler(CommandHandler("set_trailing_stop", set_trailing_stop_cmd))
+    application.add_handler(CommandHandler("trailing_config", trailing_config_cmd))
     application.add_handler(CommandHandler("restart", restart_cmd))
     application.add_handler(CommandHandler("ui", ui_cmd))
     application.add_handler(CommandHandler("track_on", track_on_cmd))
