@@ -180,7 +180,13 @@ class DailyMarketReportGenerator:
                     sentiment_icon = "🟢" if (news.sentiment_score or 0) > 0.1 else "🔴" if (news.sentiment_score or 0) < -0.1 else "⚪"
                     # Escape special characters for HTML
                     safe_title = self.escape_markdown(news.title)
-                    message_lines.append(f"{i}. {sentiment_icon} {safe_title[:80]}...")
+                    # Create clickable link if URL is available
+                    if hasattr(news, 'url') and news.url:
+                        # Escape URL for HTML
+                        safe_url = news.url.replace('&', '&amp;')
+                        message_lines.append(f"{i}. {sentiment_icon} <a href='{safe_url}'>{safe_title[:60]}...</a>")
+                    else:
+                        message_lines.append(f"{i}. {sentiment_icon} {safe_title[:80]}...")
                 message_lines.append("")
         
         # Footer
