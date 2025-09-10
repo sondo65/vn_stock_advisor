@@ -3215,27 +3215,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def test_notification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Test notification command."""
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-    await upsert_user(user_id, chat_id)
-    
-    test_message = (
-        "🧪 **Test Notification**\n\n"
-        f"✅ User ID: {user_id}\n"
-        f"📱 Chat ID: {chat_id}\n"
-        f"⏰ Time: {datetime.now(ZoneInfo('Asia/Ho_Chi_Minh')).strftime('%H:%M:%S')}\n\n"
-        "Nếu bạn thấy tin nhắn này, bot đã hoạt động bình thường!" 
-    )
-    
-    await update.message.reply_text(test_message)
-
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "Lệnh khả dụng:\n"
         "/start — khởi động bot và kích hoạt thông báo\n"
-        "/test_notification — test khả năng gửi thông báo\n"
         "/add <mã> <số_lượng> <giá> <stoploss%> — mua thêm\n"
         "/sell <mã> <số_lượng> <giá> — bán\n"
         "/set_stoploss <mã> <phần trăm> — đặt stoploss cho từng cổ phiếu\n"
@@ -3284,14 +3267,6 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/market_report_off — tắt báo cáo tự động\n"
         "🔍 Tích hợp SERPER + Gemini/OpenAI cho phân tích tin tức\n"
         "📊 Dự báo VN-Index dựa trên sentiment + kỹ thuật\n"
-        "\n"
-        "🧪 Test & Debug:\n"
-        "/test_notification — gửi thông báo test ngay lập tức\n"
-        "/test_15s — bắt đầu test gửi thông báo mỗi 30 giây\n"
-        "/test_15s_stop — dừng test 30 giây\n"
-        "/test_job_status — xem trạng thái các job đang chạy\n"
-        "/test_price <mã> — test lấy giá real-time\n"
-        "/debug_pnl — debug tính toán lãi/lỗ chi tiết\n"
         "\n"
         "📊 Tracking 30s (Real-time):\n"
         "/track_15s — bắt đầu tracking portfolio mỗi 30 giây\n"
@@ -4140,8 +4115,10 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         
         # Start smart tracking during trading hours (9:00-15:00 VN time)
         smart_job_name = f"smart_track_{user_id}"
-        for job in context.application.job_queue.get_jobs_by_name(smart_job_name):
-            job.schedule_removal()
+        jq = context.application.job_queue
+        if jq is not None:
+            for job in jq.get_jobs_by_name(smart_job_name):
+                job.schedule_removal()
         
         # Schedule smart tracking job every 15 seconds during trading hours
         job_data = {'user_id': user_id, 'chat_id': str(chat_id)}
@@ -4151,42 +4128,43 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         current_hour = current_time.hour
         
         # Check if we're in trading hours (9:00-15:00)
-        if 9 <= current_hour < 15:
-            # Currently in trading hours - start immediately
-            context.application.job_queue.run_repeating(
-                name=smart_job_name,
-                interval=timedelta(seconds=30),
-                first=datetime.now(VN_TZ) + timedelta(seconds=2),  # Start after 2 seconds
-                callback=smart_track_15s_callback,
-                data=job_data,
-            )
-            next_tracking = "Ngay bây giờ (30s)"
-            trading_status = "🟢 Đang trong giờ giao dịch"
+        if jq is not None:
+            if 9 <= current_hour < 15:
+                jq.run_repeating(
+                    name=smart_job_name,
+                    interval=timedelta(seconds=30),
+                    first=datetime.now(VN_TZ) + timedelta(seconds=2),
+                    callback=smart_track_15s_callback,
+                    data=job_data,
+                )
+                next_tracking = "Ngay bây giờ (30s)"
+                trading_status = "🟢 Đang trong giờ giao dịch"
+            else:
+                next_trading_start = datetime.combine(
+                    current_time.date() + timedelta(days=1) if current_hour >= 15 else current_time.date(),
+                    time(9, 0, 0, tzinfo=VN_TZ)
+                )
+                jq.run_repeating(
+                    name=smart_job_name,
+                    interval=timedelta(seconds=30),
+                    first=next_trading_start,
+                    callback=smart_track_15s_callback,
+                    data=job_data,
+                )
+                next_tracking = f"09:00 ngày {next_trading_start.strftime('%d/%m')}"
+                trading_status = "🔴 Ngoài giờ giao dịch"
         else:
-            # Outside trading hours - schedule for next trading day
-            next_trading_start = datetime.combine(
-                current_time.date() + timedelta(days=1) if current_hour >= 15 else current_time.date(),
-                time(9, 0, 0, tzinfo=VN_TZ)
-            )
-            context.application.job_queue.run_repeating(
-                name=smart_job_name,
-                interval=timedelta(seconds=30),
-                first=next_trading_start,
-                callback=smart_track_15s_callback,
-                data=job_data,
-            )
-            next_tracking = f"09:00 ngày {next_trading_start.strftime('%d/%m')}"
-            trading_status = "🔴 Ngoài giờ giao dịch"
+            next_tracking = "Không thể lên lịch (scheduler không sẵn sàng)"
+            trading_status = "⚠️ Scheduler chưa khởi tạo"
         
         # Also schedule traditional tracking jobs for scheduled times
         await schedule_tracking_jobs(context.application, user_id)
         print(f"Track ON: Scheduled smart tracking + traditional jobs for user {user_id}")
         
         # Verify jobs were scheduled
-        job_queue = context.application.job_queue
         user_jobs = []
-        if job_queue:
-            all_jobs = list(job_queue.jobs())
+        if jq:
+            all_jobs = list(jq.jobs())
             user_jobs = [job for job in all_jobs if job.name and f"track_" in job.name and str(user_id) in job.name]
             print(f"Track ON: Found {len(user_jobs)} jobs for user {user_id}")
         
@@ -4228,17 +4206,20 @@ async def track_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Disable tracking
     await set_tracking_settings(user_id, enabled=False, sl_pct=0.05, tp_pct=0.10, vol_ma_days=20)
     
-    # Remove traditional tracking jobs
-    for tag in ["ato_once", "morning_5m", "mid_5m", "late_5m", "atc_once", "summary_once"]:
-        for job in context.application.job_queue.get_jobs_by_name(_track_job_name(user_id, tag)):
-            job.schedule_removal()
+    # Remove traditional tracking jobs if scheduler available
+    jq = context.application.job_queue
+    if jq is not None:
+        for tag in ["ato_once", "morning_5m", "mid_5m", "late_5m", "atc_once", "summary_once"]:
+            for job in jq.get_jobs_by_name(_track_job_name(user_id, tag)):
+                job.schedule_removal()
     
     # Remove smart tracking job
     smart_job_name = f"smart_track_{user_id}"
     smart_jobs_removed = 0
-    for job in context.application.job_queue.get_jobs_by_name(smart_job_name):
-        job.schedule_removal()
-        smart_jobs_removed += 1
+    if jq is not None:
+        for job in jq.get_jobs_by_name(smart_job_name):
+            job.schedule_removal()
+            smart_jobs_removed += 1
     
     await update.message.reply_text(
         f"❌ **Tracking đã được tắt!**\n\n"
@@ -4535,208 +4516,22 @@ async def market_report_off_cmd(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         await update.message.reply_text(f"❌ Lỗi khi tắt báo cáo: {str(e)}")
 
-async def test_price_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Test real-time price for a symbol."""
-    assert update.effective_user is not None
-    if len(context.args) != 1:
-        await update.message.reply_text("Cú pháp: /test_price <mã>\nVí dụ: /test_price VIC")
-        return
-    
-    symbol = context.args[0].upper()
-    await update.message.reply_text(f"🔍 Đang lấy giá real-time cho {symbol}...")
-    
-    try:
-        price = await MarketData.get_price(symbol)
-        if price is not None:
-            await update.message.reply_text(f"✅ Giá {symbol}: {price:.2f} VND")
-        else:
-            await update.message.reply_text(f"❌ Không thể lấy giá cho {symbol}")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi: {str(e)}")
+ 
 
 
-async def test_notification_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Test notification system by sending a test message."""
-    assert update.effective_user is not None
-    assert update.effective_chat is not None
-    user_id = update.effective_user.id
-    chat_id = str(update.effective_chat.id)
-    
-    try:
-        # Ensure user is registered
-        await upsert_user(user_id, chat_id)
-        
-        # Send test message
-        test_message = (
-            f"🧪 **TEST NOTIFICATION**\n\n"
-            f"⏰ Thời gian: {datetime.now(VN_TZ).strftime('%H:%M:%S %d/%m/%Y')}\n"
-            f"👤 User ID: {user_id}\n"
-            f"💬 Chat ID: {chat_id}\n"
-            f"✅ Bot có thể gửi tin nhắn thành công!"
-        )
-        
-        await update.message.reply_text(test_message, parse_mode=ParseMode.MARKDOWN)
-        print(f"✅ Test notification sent to user {user_id} in chat {chat_id}")
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi khi gửi test notification: {str(e)}")
-        print(f"❌ Error in test_notification_cmd: {e}")
+ 
 
 
-async def test_15s_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Start 30-second interval test notifications."""
-    assert update.effective_user is not None
-    assert update.effective_chat is not None
-    user_id = update.effective_user.id
-    chat_id = str(update.effective_chat.id)
-    
-    try:
-        # Ensure user is registered
-        await upsert_user(user_id, chat_id)
-        
-        # Remove any existing test job
-        test_job_name = f"test_15s_{user_id}"
-        for job in context.application.job_queue.get_jobs_by_name(test_job_name):
-            job.schedule_removal()
-        
-        # Schedule repeating test job every 30 seconds
-        job_data = {'user_id': user_id, 'chat_id': chat_id}
-        context.application.job_queue.run_repeating(
-            name=test_job_name,
-            interval=timedelta(seconds=30),
-            first=datetime.now(VN_TZ) + timedelta(seconds=2),  # Start after 2 seconds
-            callback=test_15s_callback,
-            data=job_data,
-        )
-        
-        await update.message.reply_text(
-            f"🧪 **Bắt đầu test 30 giây!**\n\n"
-            f"Bot sẽ gửi thông báo test mỗi 30 giây.\n"
-            f"⏰ Bắt đầu sau 2 giây...\n\n"
-            f"Sử dụng `/test_15s_stop` để dừng test."
-        )
-        print(f"✅ Started 30s test for user {user_id}")
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi khi bắt đầu test 30s: {str(e)}")
-        print(f"❌ Error in test_15s_cmd: {e}")
+ 
 
 
-async def test_15s_stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Stop 30-second interval test notifications."""
-    assert update.effective_user is not None
-    user_id = update.effective_user.id
-    
-    try:
-        # Remove test job
-        test_job_name = f"test_15s_{user_id}"
-        jobs_removed = 0
-        for job in context.application.job_queue.get_jobs_by_name(test_job_name):
-            job.schedule_removal()
-            jobs_removed += 1
-        
-        if jobs_removed > 0:
-            await update.message.reply_text(
-                f"⏹️ **Đã dừng test 30 giây!**\n\n"
-                f"Đã xóa {jobs_removed} job test."
-            )
-            print(f"✅ Stopped 15s test for user {user_id}")
-        else:
-            await update.message.reply_text("ℹ️ Không có test 30s nào đang chạy.")
-            
-    except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi khi dừng test 30s: {str(e)}")
-        print(f"❌ Error in test_15s_stop_cmd: {e}")
+ 
 
 
-async def test_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Callback for 30-second test notifications."""
-    try:
-        job = ctx.job
-        user_id = job.data.get('user_id')
-        chat_id = job.data.get('chat_id')
-        
-        if not user_id or not chat_id:
-            print("Test 30s callback: Missing user_id or chat_id")
-            return
-        
-        # Create test message
-        current_time = datetime.now(VN_TZ)
-        test_message = (
-            f"🧪 **TEST 30s NOTIFICATION**\n\n"
-            f"⏰ Thời gian: {current_time.strftime('%H:%M:%S %d/%m/%Y')}\n"
-            f"👤 User ID: {user_id}\n"
-            f"💬 Chat ID: {chat_id}\n"
-            f"🔄 Test notification #{job.data.get('count', 1)}\n"
-            f"✅ Bot hoạt động bình thường!"
-        )
-        
-        # Send test message
-        await ctx.application.bot.send_message(
-            chat_id=chat_id,
-            text=test_message,
-            parse_mode=ParseMode.MARKDOWN
-        )
-        
-        # Update counter
-        job.data['count'] = job.data.get('count', 0) + 1
-        
-        print(f"✅ Test 30s notification #{job.data.get('count', 1)} sent to user {user_id}")
-        
-    except Exception as e:
-        print(f"❌ Error in test_15s_callback: {e}")
-        # Try to send error message to user
-        try:
-            job = ctx.job
-            user_id = job.data.get('user_id')
-            chat_id = job.data.get('chat_id')
-            if user_id and chat_id:
-                await ctx.application.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"❌ Lỗi trong test 30s: {str(e)}"
-                )
-        except Exception as e2:
-            print(f"❌ Error sending error message: {e2}")
+ 
 
 
-async def test_job_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show status of all test jobs."""
-    assert update.effective_user is not None
-    user_id = update.effective_user.id
-    
-    try:
-        jq = context.application.job_queue
-        if jq is None:
-            await update.message.reply_text("❌ JobQueue is None")
-            return
-        
-        # Get all jobs for this user
-        all_jobs = list(jq.jobs())
-        user_jobs = [job for job in all_jobs if job.name and str(user_id) in job.name]
-        
-        if not user_jobs:
-            await update.message.reply_text("ℹ️ Không có job nào đang chạy cho user này.")
-            return
-        
-        lines = [f"📊 **Job Status cho User {user_id}:**\n"]
-        
-        for job in user_jobs:
-            next_run = getattr(job, "next_t", None) or getattr(job, "next_run_time", None)
-            job_type = job.data.get('job_type', 'unknown') if hasattr(job, 'data') else 'unknown'
-            count = job.data.get('count', 0) if hasattr(job, 'data') else 0
-            
-            lines.append(f"• **{job.name}**")
-            lines.append(f"  - Type: {job_type}")
-            lines.append(f"  - Next run: {next_run}")
-            if count > 0:
-                lines.append(f"  - Count: {count}")
-            lines.append("")
-        
-        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi khi kiểm tra job status: {str(e)}")
-        print(f"❌ Error in test_job_status_cmd: {e}")
+ 
 
 
 async def track_15s_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -5242,52 +5037,7 @@ async def smart_track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             print(f"❌ Error sending error message: {e2}")
 
 
-async def debug_pnl_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Debug PnL calculation with detailed breakdown."""
-    assert update.effective_user is not None
-    user_id = update.effective_user.id
-    positions = await get_positions(user_id)
-    
-    if not positions:
-        await update.message.reply_text("Danh mục trống.")
-        return
-    
-    lines = ["🔍 Debug PnL Calculation:"]
-    total_pnl = 0.0
-    total_cost = 0.0
-    total_value = 0.0
-    
-    for symbol, qty, avg_cost in positions:
-        price = await MarketData.get_price(symbol)
-        if price is not None:
-            pnl = (price - avg_cost) * qty
-            cost_value = avg_cost * qty
-            current_value = price * qty
-            pnl_pct = ((price - avg_cost) / avg_cost) * 100
-            
-            total_pnl += pnl
-            total_cost += cost_value
-            total_value += current_value
-            
-            lines.append(f"\n📊 {symbol}:")
-            lines.append(f"  • Số lượng: {qty:g}")
-            lines.append(f"  • Giá vốn: {avg_cost:.2f}")
-            lines.append(f"  • Giá RT: {price:.2f}")
-            lines.append(f"  • Giá trị vốn: {cost_value:,.0f}")
-            lines.append(f"  • Giá trị hiện tại: {current_value:,.0f}")
-            lines.append(f"  • Lãi/lỗ: {pnl:,.0f} ({pnl_pct:+.2f}%)")
-        else:
-            lines.append(f"\n❌ {symbol}: Không có dữ liệu giá")
-    
-    lines.append(f"\n💰 Tổng kết:")
-    lines.append(f"  • Tổng vốn: {total_cost:,.0f}")
-    lines.append(f"  • Tổng giá trị: {total_value:,.0f}")
-    lines.append(f"  • Tổng lãi/lỗ: {total_pnl:,.0f}")
-    if total_cost > 0:
-        total_pnl_pct = (total_pnl / total_cost) * 100
-        lines.append(f"  • Lãi/lỗ %: {total_pnl_pct:+.2f}%")
-    
-    await update.message.reply_text("\n".join(lines))
+ 
 
 
 async def ui_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -5681,7 +5431,6 @@ def main() -> None:
     )
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("test_notification", test_notification))
     application.add_handler(CommandHandler("help", help_cmd))
     application.add_handler(CommandHandler("add", add_cmd))
     application.add_handler(CommandHandler("sell", sell_cmd))
@@ -5711,10 +5460,6 @@ def main() -> None:
     application.add_handler(CommandHandler("market_report", market_report_cmd))
     application.add_handler(CommandHandler("market_report_schedule", market_report_schedule_cmd))
     application.add_handler(CommandHandler("market_report_off", market_report_off_cmd))
-    application.add_handler(CommandHandler("test_notification", test_notification_cmd))
-    application.add_handler(CommandHandler("test_15s", test_15s_cmd))
-    application.add_handler(CommandHandler("test_15s_stop", test_15s_stop_cmd))
-    application.add_handler(CommandHandler("test_job_status", test_job_status_cmd))
     application.add_handler(CommandHandler("track_15s", track_15s_cmd))
     application.add_handler(CommandHandler("track_15s_stop", track_15s_stop_cmd))
     application.add_handler(CommandHandler("smart_track", smart_track_cmd))
