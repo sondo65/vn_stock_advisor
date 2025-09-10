@@ -1442,6 +1442,15 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
     current_hour = current_time.hour
     current_minute = current_time.minute
     
+    # Only run during trading hours (9:00-11:30 and 13:00-15:00 VN time) unless force_status is True
+    if not force_status:
+        is_morning_session = (current_hour == 9) or (current_hour == 10) or (current_hour == 11 and current_minute <= 30)
+        is_afternoon_session = (current_hour == 13) or (current_hour == 14) or (current_hour == 15 and current_minute == 0)
+        
+        if not (is_morning_session or is_afternoon_session):
+            print(f"🔕 Portfolio check: Outside trading hours ({current_time.strftime('%H:%M')}) - skipping")
+            return
+    
     # Determine if this is a key time for detailed status
     is_key_time = (
         (current_hour == 9 and current_minute == 5) or  # ATO
@@ -1979,7 +1988,7 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
         print(f"Schedule tracking: User {user_id}, enabled={enabled}")
         
         # Remove old tracking jobs
-        for tag in ["ato_once", "morning_5m", "mid_5m", "late_5m", "atc_once", "summary_once"]:
+        for tag in ["ato_once", "morning_5m", "afternoon_5m", "atc_once", "summary_once"]:
             for job in app.job_queue.get_jobs_by_name(_track_job_name(user_id, tag)):
                 job.schedule_removal()
         
@@ -2010,10 +2019,10 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
             jobs_scheduled += 1
             print(f"Scheduled ATO job for user {user_id}")
         
-        # 09:15–10:30: repeating checks
-        if current_time < _vn_time(10, 30):
+        # 09:15–11:30: morning session repeating checks
+        if current_time < _vn_time(11, 30):
             start_dt = datetime.combine(now.date(), _vn_time(9, 15))
-            end_dt = datetime.combine(now.date(), _vn_time(10, 30))
+            end_dt = datetime.combine(now.date(), _vn_time(11, 30))
             if now < start_dt:
                 first_dt = start_dt
             else:
@@ -2030,35 +2039,16 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
             jobs_scheduled += 1
             print(f"Scheduled morning job for user {user_id} (first={first_dt}, last={end_dt})")
         
-        # 10:30–13:30: repeating checks
-        if current_time < _vn_time(13, 30):
-            start_dt = datetime.combine(now.date(), _vn_time(10, 30))
-            end_dt = datetime.combine(now.date(), _vn_time(13, 30))
-            if now < start_dt:
-                first_dt = start_dt
-            else:
-                first_dt = now + timedelta(seconds=2)
-            app.job_queue.run_repeating(
-                name=_track_job_name(user_id, "mid_5m"),
-                interval=timedelta(minutes=1) if TEST_EVERY_MINUTE else timedelta(minutes=5),
-                first=first_dt,
-                last=end_dt,
-                callback=tracking_callback,
-                data={**job_data, 'job_type': 'check_positions'},
-            )
-            jobs_scheduled += 1
-            print(f"Scheduled mid job for user {user_id} (first={first_dt}, last={end_dt})")
-        
-        # 13:30–14:30: repeating checks
+        # 13:00–14:30: afternoon session repeating checks
         if current_time < _vn_time(14, 30):
-            start_dt = datetime.combine(now.date(), _vn_time(13, 30))
+            start_dt = datetime.combine(now.date(), _vn_time(13, 0))
             end_dt = datetime.combine(now.date(), _vn_time(14, 30))
             if now < start_dt:
                 first_dt = start_dt
             else:
                 first_dt = now + timedelta(seconds=2)
             app.job_queue.run_repeating(
-                name=_track_job_name(user_id, "late_5m"),
+                name=_track_job_name(user_id, "afternoon_5m"),
                 interval=timedelta(minutes=1) if TEST_EVERY_MINUTE else timedelta(minutes=5),
                 first=first_dt,
                 last=end_dt,
@@ -2066,7 +2056,7 @@ async def schedule_tracking_jobs(app: Application, user_id: int) -> None:
                 data={**job_data, 'job_type': 'check_positions'},
             )
             jobs_scheduled += 1
-            print(f"Scheduled late job for user {user_id} (first={first_dt}, last={end_dt})")
+            print(f"Scheduled afternoon job for user {user_id} (first={first_dt}, last={end_dt})")
         
         # 14:35 ATC (once)
         if current_time < _vn_time(14, 35):
@@ -3345,9 +3335,8 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             f"• 📉 Volume Drop: Giảm >30% → Gợi ý giảm tỷ trọng\n\n"
             f"⏰ **Lịch theo dõi truyền thống:**\n"
             f"• 09:05 - ATO check\n"
-            f"• 09:15-10:30 - Mỗi 5 phút\n"
-            f"• 10:30-13:30 - Mỗi 5 phút\n"
-            f"• 13:30-14:30 - Mỗi 5 phút\n"
+            f"• 09:15-11:30 - Mỗi 5 phút (Phiên sáng)\n"
+            f"• 13:00-14:30 - Mỗi 5 phút (Phiên chiều)\n"
             f"• 14:35 - ATC check\n"
             f"• 14:40 - Tóm tắt cuối ngày\n\n"
             f"📈 **Jobs đã lên lịch:** {len(user_jobs)}\n\n"
@@ -3431,9 +3420,8 @@ async def track_config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"**Volume MA:** {vol_ma_days} ngày\n\n"
         f"**Lịch theo dõi:**\n"
         f"• 09:05 - ATO check\n"
-        f"• 09:15-10:30 - Mỗi 5 phút\n"
-        f"• 10:30-13:30 - Mỗi 5 phút\n"
-        f"• 13:30-14:30 - Mỗi 5 phút\n"
+        f"• 09:15-11:30 - Mỗi 5 phút (Phiên sáng)\n"
+        f"• 13:00-14:30 - Mỗi 5 phút (Phiên chiều)\n"
         f"• 14:35 - ATC check\n"
         f"• 14:40 - Tóm tắt cuối ngày\n\n"
         f"**Thông tin hiện tại:**\n"
