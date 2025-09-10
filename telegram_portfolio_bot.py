@@ -1327,9 +1327,27 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
 
     print(f"Checking {len(positions)} positions for user {user_id}")
     
-    # Always send portfolio status for traditional tracking
+    # Check if we should send detailed or compact status
     current_time = datetime.now(VN_TZ)
-    status_lines = [f"📊 **Portfolio Status - {current_time.strftime('%H:%M:%S')}**\n"]
+    current_hour = current_time.hour
+    current_minute = current_time.minute
+    
+    # Determine if this is a key time for detailed status
+    is_key_time = (
+        (current_hour == 9 and current_minute == 5) or  # ATO
+        (current_hour == 14 and current_minute == 35) or  # ATC
+        (current_hour == 14 and current_minute == 40) or  # Summary
+        (current_hour == 9 and current_minute in [15, 30, 45]) or  # Morning key times
+        (current_hour == 10 and current_minute in [0, 15, 30]) or  # Morning key times
+        (current_hour == 13 and current_minute in [30, 45]) or  # Afternoon key times
+        (current_hour == 14 and current_minute in [0, 15, 30])  # Afternoon key times
+    )
+    
+    # Always send portfolio status for traditional tracking
+    status_lines = [
+        f"📊 **Portfolio Status - {current_time.strftime('%H:%M:%S')}**",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    ]
     
     total_pnl = 0.0
     total_cost = 0.0
@@ -1392,12 +1410,18 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
                         signal_text = f" ⚠️ TP nhưng vol chưa xác nhận"
                         print(f"  {symbol}: Breakout but volume not confirmed")
             
-            # Add to status lines
-            status_lines.append(
-                f"{price_indicator} **{symbol}**: {price:.2f} "
-                f"(SL: {qty:g}, Cost: {avg_cost:.2f}) "
-                f"PnL: {pnl:+.0f} ({pnl_pct:+.1f}%){signal_text}"
-            )
+            # Format PnL with better visual indicators
+            pnl_emoji = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
+            pnl_text = f"{pnl_emoji} {pnl:+.0f} ({pnl_pct:+.1f}%)"
+            
+            # Add to status lines with improved formatting
+            status_lines.extend([
+                "",
+                f"{price_indicator} **{symbol}**",
+                f"   💰 Giá: {price:.2f}",
+                f"   📊 SL: {qty:g} | Cost: {avg_cost:.2f}",
+                f"   {pnl_text}{signal_text}"
+            ])
             
             # Add trailing stop info if enabled
             if trailing_settings and trailing_settings['enabled']:
@@ -1405,25 +1429,79 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
                 if trailing_stop_price is not None:
                     status_lines.append(f"   🎯 Trailing: {trailing_stop_price:.2f} (Highest: {trailing_settings['highest_price']:.2f})")
         else:
-            status_lines.append(f"❓ **{symbol}**: N/A (SL: {qty:g}, Cost: {avg_cost:.2f})")
+            status_lines.extend([
+                "",
+                f"❓ **{symbol}**",
+                f"   📊 SL: {qty:g} | Cost: {avg_cost:.2f}",
+                f"   ❌ Giá: N/A"
+            ])
     
-    # Add summary if we have price data
+    # Add summary section with better formatting
     if any_price_available and total_cost > 0:
         total_pnl_pct = (total_pnl / total_cost) * 100
-        status_lines.append(f"\n💰 **Tổng PnL**: {total_pnl:+.0f} ({total_pnl_pct:+.1f}%)")
+        summary_emoji = "🟢" if total_pnl > 0 else "🔴" if total_pnl < 0 else "⚪"
+        status_lines.extend([
+            "",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            f"💰 **Tổng PnL**: {summary_emoji} {total_pnl:+.0f} ({total_pnl_pct:+.1f}%)"
+        ])
     
     # Add signal summary if any
     if any_signal:
-        status_lines.append(f"\n🚨 **Có tín hiệu quan trọng!**")
+        status_lines.extend([
+            "",
+            "🚨 **Có tín hiệu quan trọng!**"
+        ])
     
-    # Send status message
-    try:
-        print(f"🔍 Attempting to send portfolio status to user {user_id}, chat_id: {chat_id}")
-        await app.bot.send_message(chat_id=chat_id, text="\n".join(status_lines))
-        print(f"✅ Sent portfolio status to user {user_id}")
-    except Exception as e:
-        print(f"❌ Failed to send portfolio status to user {user_id}: {e}")
-        print(f"🔍 Chat ID type: {type(chat_id)}, value: {chat_id}")
+    # Create compact format for frequent updates
+    if not is_key_time and not any_signal and not force_status:
+        # Only send compact format for non-key times
+        compact_lines = [
+            f"📊 **Portfolio Update - {current_time.strftime('%H:%M:%S')}**",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ]
+        
+        # Add only significant changes in compact format
+        for symbol, qty, avg_cost in positions:
+            price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days)
+            if price is not None:
+                pnl = (price - avg_cost) * qty
+                pnl_pct = ((price - avg_cost) / avg_cost) * 100
+                
+                # Only show if PnL changed significantly (>0.5%)
+                if abs(pnl_pct) > 0.5:
+                    pnl_emoji = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
+                    price_indicator = "📈" if pnl > 0 else "📉" if pnl < 0 else "➡️"
+                    compact_lines.append(f"{price_indicator} **{symbol}**: {price:.2f} {pnl_emoji} {pnl:+.0f} ({pnl_pct:+.1f}%)")
+        
+        # Add total PnL
+        if any_price_available and total_cost > 0:
+            total_pnl_pct = (total_pnl / total_cost) * 100
+            summary_emoji = "🟢" if total_pnl > 0 else "🔴" if total_pnl < 0 else "⚪"
+            compact_lines.extend([
+                "",
+                f"💰 **Tổng PnL**: {summary_emoji} {total_pnl:+.0f} ({total_pnl_pct:+.1f}%)"
+            ])
+        
+        # Only send if there are significant changes
+        if len(compact_lines) > 3:  # More than just header and separator
+            try:
+                print(f"🔍 Sending compact portfolio update to user {user_id}")
+                await app.bot.send_message(chat_id=chat_id, text="\n".join(compact_lines))
+                print(f"✅ Sent compact portfolio update to user {user_id}")
+            except Exception as e:
+                print(f"❌ Failed to send compact portfolio update to user {user_id}: {e}")
+        else:
+            print(f"📊 No significant changes to report for user {user_id}")
+    else:
+        # Send full detailed status for key times or when there are signals
+        try:
+            print(f"🔍 Sending detailed portfolio status to user {user_id}")
+            await app.bot.send_message(chat_id=chat_id, text="\n".join(status_lines))
+            print(f"✅ Sent detailed portfolio status to user {user_id}")
+        except Exception as e:
+            print(f"❌ Failed to send detailed portfolio status to user {user_id}: {e}")
+            print(f"🔍 Chat ID type: {type(chat_id)}, value: {chat_id}")
 
 
 async def summarize_eod_and_outlook(app: Application, user_id: int, chat_id: str) -> None:
