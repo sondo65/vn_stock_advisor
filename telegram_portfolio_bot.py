@@ -990,7 +990,7 @@ async def init_db() -> None:
         await db.commit()
 
 
-async def upsert_user(user_id: int, chat_id: str) -> None:
+async def upsert_user(user_id: int, chat_id: int) -> None:
     now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -1000,11 +1000,16 @@ async def upsert_user(user_id: int, chat_id: str) -> None:
         await db.commit()
 
 
-async def get_user_chat_id(user_id: int) -> Optional[str]:
+async def get_user_chat_id(user_id: int) -> Optional[int]:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT chat_id FROM users WHERE user_id=?", (user_id,)) as cur:
             row = await cur.fetchone()
-            return row[0] if row else None
+            if row:
+                try:
+                    return int(row[0])
+                except (ValueError, TypeError):
+                    return None
+            return None
 
 
 async def get_tracking_settings(user_id: int) -> tuple[bool, float, float, int]:
@@ -1217,65 +1222,95 @@ async def get_all_trailing_stops(user_id: int) -> Dict[str, Dict[str, Any]]:
 
 
 async def get_price_and_volume(symbol: str, vol_ma_days: int) -> tuple[Optional[float], Optional[float], Optional[float]]:
-    # First try to get real-time price
+    # Get real-time price and volume data
     try:
-        price = await MarketData.get_price(symbol)
-        if price is not None:
-            # Get volume data from historical data for MA calculation
-            try:
-                from vnstock import stock_historical_data
-                today = datetime.now().date()
-                start_date = (today - timedelta(days=max(20, vol_ma_days * 2))).strftime("%Y-%m-%d")
-                end_date = today.strftime("%Y-%m-%d")
-                df = stock_historical_data(
-                    symbol=symbol,
-                    start=start_date,
-                    end=end_date,
-                    resolution="1D",
-                )
-                if df is not None and len(df) > 0:
-                    df = df.dropna(subset=["volume"])  # type: ignore[attr-defined]
-                    if len(df) > 0:
-                        last_vol = float(df["volume"].iloc[-1])  # type: ignore[index]
-                        if len(df) >= vol_ma_days:
-                            ma_vol = float(df["volume"].tail(vol_ma_days).mean())  # type: ignore[attr-defined]
+        from vnstock import Quote
+        
+        # Get real-time data
+        quote = Quote(source='VCI', symbol=symbol)
+        realtime_data = quote.intraday()
+        
+        if realtime_data is not None and len(realtime_data) > 0:
+            # Get latest real-time price and volume
+            latest_data = realtime_data.iloc[-1]
+            price = float(latest_data.get('close', latest_data.get('price', 0)))
+            volume = float(latest_data.get('volume', 0))
+            
+            print(f"    🔍 Getting realtime data for {symbol}")
+            print(f"    📊 Realtime: Price={price:.2f}, Volume={volume:.0f}")
+            
+            if price > 0 and volume > 0:
+                # Get historical volume data for MA calculation
+                try:
+                    today = datetime.now().date()
+                    start_date = (today - timedelta(days=max(20, vol_ma_days * 2))).strftime("%Y-%m-%d")
+                    end_date = today.strftime("%Y-%m-%d")
+                    
+                    df = quote.history(
+                        start=start_date,
+                        end=end_date,
+                        interval="1D"
+                    )
+                    
+                    if df is not None and len(df) > 0:
+                        print(f"    📊 Historical data: {len(df)} rows for MA calculation")
+                        df = df.dropna(subset=["volume"])  # type: ignore[attr-defined]
+                        if len(df) > 0:
+                            if len(df) >= vol_ma_days:
+                                ma_vol = float(df["volume"].tail(vol_ma_days).mean())  # type: ignore[attr-defined]
+                            else:
+                                ma_vol = float(df["volume"].mean())  # type: ignore[attr-defined]
+                            print(f"    ✅ Volume MA: {ma_vol:.0f}")
+                            return (price, volume, ma_vol)
                         else:
-                            ma_vol = float(df["volume"].mean())  # type: ignore[attr-defined]
-                        return (price, last_vol, ma_vol)
-            except Exception:
-                pass
-            # If volume data fails, return real-time price with None volume
-            return (price, None, None)
-    except Exception:
-        pass
-
+                            print(f"    ❌ No volume data after dropna")
+                    else:
+                        print(f"    ❌ No historical data for MA")
+                except Exception as e:
+                    print(f"    ❌ Error getting volume MA: {e}")
+                
+                # Return real-time data even without MA
+                print(f"    ✅ Using realtime volume without MA")
+                return (price, volume, None)
+            else:
+                print(f"    ❌ Invalid realtime data: price={price}, volume={volume}")
+        else:
+            print(f"    ❌ No realtime data returned")
+            
+    except Exception as e:
+        print(f"    ❌ Error getting realtime data: {e}")
+    
     # Fallback to historical data for both price and volume
     try:
-        from vnstock import stock_historical_data
+        from vnstock import Quote
         today = datetime.now().date()
         start_date = (today - timedelta(days=max(20, vol_ma_days * 2))).strftime("%Y-%m-%d")
         end_date = today.strftime("%Y-%m-%d")
-        df = stock_historical_data(
-            symbol=symbol,
+        
+        quote = Quote(source='VCI', symbol=symbol)
+        df = quote.history(
             start=start_date,
             end=end_date,
-            resolution="1D",
+            interval="1D"
         )
-        if df is None or len(df) == 0:
-            price = await MarketData.get_price(symbol)
-            return (price, None, None)
-        df = df.dropna(subset=["close", "volume"])  # type: ignore[attr-defined]
-        if df is None or len(df) == 0:  # safety
-            price = await MarketData.get_price(symbol)
-            return (price, None, None)
-        last_close = float(df["close"].iloc[-1])  # type: ignore[index]
-        last_vol = float(df["volume"].iloc[-1])  # type: ignore[index]
-        if len(df) >= vol_ma_days:
-            ma_vol = float(df["volume"].tail(vol_ma_days).mean())  # type: ignore[attr-defined]
-        else:
-            ma_vol = float(df["volume"].mean())  # type: ignore[attr-defined]
-        return (last_close, last_vol, ma_vol)
-    except Exception:
+        
+        if df is not None and len(df) > 0:
+            df = df.dropna(subset=["close", "volume"])  # type: ignore[attr-defined]
+            if len(df) > 0:
+                last_close = float(df["close"].iloc[-1])  # type: ignore[index]
+                last_vol = float(df["volume"].iloc[-1])  # type: ignore[index]
+                if len(df) >= vol_ma_days:
+                    ma_vol = float(df["volume"].tail(vol_ma_days).mean())  # type: ignore[attr-defined]
+                else:
+                    ma_vol = float(df["volume"].mean())  # type: ignore[attr-defined]
+                print(f"    ✅ Fallback historical: Price={last_close:.2f}, Volume={last_vol:.0f}, MA={ma_vol:.0f}")
+                return (last_close, last_vol, ma_vol)
+        
+        # Final fallback - just get price
+        price = await MarketData.get_price(symbol)
+        return (price, None, None)
+    except Exception as e:
+        print(f"    ❌ Error in fallback: {e}")
         price = await MarketData.get_price(symbol)
         return (price, None, None)
 
@@ -1291,150 +1326,201 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
         return
 
     print(f"Checking {len(positions)} positions for user {user_id}")
-    lines: List[str] = ["Theo dõi giá real-time (tự động):"]
+    
+    # Always send portfolio status for traditional tracking
+    current_time = datetime.now(VN_TZ)
+    status_lines = [f"📊 **Portfolio Status - {current_time.strftime('%H:%M:%S')}**\n"]
+    
+    total_pnl = 0.0
+    total_cost = 0.0
+    any_price_available = False
     any_signal = False
-
+    
     for symbol, qty, avg_cost in positions:
         price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days)
-        if price is None:
-            print(f"  {symbol}: No price data available")
-            continue
         
-        # Check trailing stop first (if enabled)
-        trailing_settings = await get_trailing_stop_settings(user_id, symbol)
-        trailing_triggered = False
-        trailing_stop_price = None
-        
-        if trailing_settings and trailing_settings['enabled']:
-            # Update trailing stop price based on current price
-            new_trailing_stop = await update_trailing_stop_price(user_id, symbol, price)
-            if new_trailing_stop is not None:
-                trailing_stop_price = new_trailing_stop
-                if price <= trailing_stop_price:
-                    trailing_triggered = True
-                    any_signal = True
-                    lines.append(f"- {symbol}: 🎯 Trailing Stop kích hoạt! Giá RT {price:.2f} ≤ {trailing_stop_price:.2f} (trailing {trailing_settings['trailing_pct']*100:.0f}%). Gợi ý: SELL để chốt lời.")
-                    print(f"  {symbol}: TRAILING STOP TRIGGERED! Price={price:.2f} <= TrailingStop={trailing_stop_price:.2f}")
-        
-        # If trailing stop not triggered, check regular stoploss
-        if not trailing_triggered:
-            # Use individual stoploss for this stock
+        if price is not None:
+            any_price_available = True
+            pnl = (price - avg_cost) * qty
+            pnl_pct = ((price - avg_cost) / avg_cost) * 100
+            cost_value = avg_cost * qty
+            current_value = price * qty
+            
+            total_pnl += pnl
+            total_cost += cost_value
+            
+            # Price change indicator
+            if pnl > 0:
+                price_indicator = "📈"
+            elif pnl < 0:
+                price_indicator = "📉"
+            else:
+                price_indicator = "➡️"
+            
+            # Get individual stoploss for this stock
             individual_sl_pct = await get_stock_stoploss(user_id, symbol)
             sl_price = avg_cost * (1 - individual_sl_pct)
             tp_price = avg_cost * (1 + tp_pct)
             
-            print(f"  {symbol}: Price={price:.2f}, AvgCost={avg_cost:.2f}, SL={sl_price:.2f} ({individual_sl_pct*100:.0f}%), TP={tp_price:.2f} ({tp_pct*100:.0f}%)")
-
-            if price <= sl_price:
-                any_signal = True
-                lines.append(f"- {symbol}: ⛔ Stoploss kích hoạt. Giá RT {price:.2f} ≤ {sl_price:.2f} ({individual_sl_pct*100:.0f}%). Gợi ý: SELL.")
-                print(f"  {symbol}: STOPLOSS TRIGGERED!")
-                # Optional: auto record sell in DB (requires confirmation policy)
-                # await add_transaction_and_update_position(user_id, symbol, "SELL", qty, price)
-            elif price >= tp_price:
-                vol_ok = (vol is not None and vol_ma is not None and vol > vol_ma) or (vol is None or vol_ma is None)
-                if vol_ok:
-                    any_signal = True
-                    lines.append(f"- {symbol}: ✅ Breakout xác nhận. Giá RT {price:.2f} ≥ {tp_price:.2f}{' & vol>MA' if (vol is not None and vol_ma is not None) else ''}. Gợi ý: BUY_MORE.")
-                    print(f"  {symbol}: BREAKOUT CONFIRMED!")
-                else:
-                    lines.append(f"- {symbol}: Giá RT {price:.2f} ≥ {tp_price:.2f} nhưng vol chưa xác nhận (vol≤MA). Theo dõi thêm.")
-                    print(f"  {symbol}: Breakout but volume not confirmed")
+            # Check for signals
+            signal_text = ""
+            
+            # Check trailing stop first (if enabled)
+            trailing_settings = await get_trailing_stop_settings(user_id, symbol)
+            if trailing_settings and trailing_settings['enabled']:
+                # Update trailing stop price based on current price
+                new_trailing_stop = await update_trailing_stop_price(user_id, symbol, price)
+                if new_trailing_stop is not None:
+                    trailing_stop_price = new_trailing_stop
+                    if price <= trailing_stop_price:
+                        any_signal = True
+                        signal_text = f" 🎯 TRAILING STOP!"
+                        print(f"  {symbol}: TRAILING STOP TRIGGERED! Price={price:.2f} <= TrailingStop={trailing_stop_price:.2f}")
             else:
-                print(f"  {symbol}: No signal (price between SL and TP)")
-        
-        # Show trailing stop status if enabled
-        if trailing_settings and trailing_settings['enabled'] and not trailing_triggered:
-            print(f"  {symbol}: Trailing Stop active - Highest: {trailing_settings['highest_price']:.2f}, Trailing Stop: {trailing_stop_price:.2f}")
-
-    if any_signal:
-        try:
-            await app.bot.send_message(chat_id=chat_id, text="\n".join(lines))
-            print(f"✅ Sent tracking alert to user {user_id}")
-        except Exception as e:
-            print(f"❌ Failed to send tracking alert to user {user_id}: {e}")
-    else:
-        # Send periodic status update
-        current_time = datetime.now(VN_TZ)
-        # In test mode: send every minute; otherwise every 5 minutes; allow override
-        if force_status or TEST_EVERY_MINUTE or (current_time.minute % 5 == 0):
-            status_lines = ["📊 **Theo dõi giá tự động**\n"]
-            status_lines.append(f"⏰ {current_time.strftime('%H:%M:%S')} - Bot đang theo dõi {len(positions)} mã cổ phiếu")
-            
-            for symbol, qty, avg_cost in positions:
-                price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days)
-                if price is not None:
-                    # Check if trailing stop is enabled
-                    trailing_settings = await get_trailing_stop_settings(user_id, symbol)
-                    if trailing_settings and trailing_settings['enabled']:
-                        # Update trailing stop and get current trailing stop price
-                        trailing_stop_price = await update_trailing_stop_price(user_id, symbol, price)
-                        if trailing_stop_price is not None:
-                            pnl = (price - avg_cost) * qty
-                            pnl_pct = ((price - avg_cost) / avg_cost) * 100
-                            status_lines.append(f"• {symbol}: {price:.2f} (Trailing: {trailing_stop_price:.2f}, Highest: {trailing_settings['highest_price']:.2f}) - PnL: {pnl:+.2f} ({pnl_pct:+.1f}%)")
+                # Check regular stoploss
+                if price <= sl_price:
+                    any_signal = True
+                    signal_text = f" ⛔ STOPLOSS!"
+                    print(f"  {symbol}: STOPLOSS TRIGGERED!")
+                elif price >= tp_price:
+                    vol_ok = (vol is not None and vol_ma is not None and vol > vol_ma) or (vol is None or vol_ma is None)
+                    if vol_ok:
+                        any_signal = True
+                        signal_text = f" ✅ BREAKOUT!"
+                        print(f"  {symbol}: BREAKOUT CONFIRMED!")
                     else:
-                        # Regular stoploss
-                        individual_sl_pct = await get_stock_stoploss(user_id, symbol)
-                        sl_price = avg_cost * (1 - individual_sl_pct)
-                        tp_price = avg_cost * (1 + tp_pct)
-                        pnl = (price - avg_cost) * qty
-                        pnl_pct = ((price - avg_cost) / avg_cost) * 100
-                        
-                        status_lines.append(f"• {symbol}: {price:.2f} (SL: {sl_price:.2f}, TP: {tp_price:.2f}) - PnL: {pnl:+.2f} ({pnl_pct:+.1f}%)")
+                        signal_text = f" ⚠️ TP nhưng vol chưa xác nhận"
+                        print(f"  {symbol}: Breakout but volume not confirmed")
             
-            try:
-                await app.bot.send_message(chat_id=chat_id, text="\n".join(status_lines))
-                print(f"✅ Sent status update to user {user_id}")
-            except Exception as e:
-                print(f"❌ Failed to send status update to user {user_id}: {e}")
+            # Add to status lines
+            status_lines.append(
+                f"{price_indicator} **{symbol}**: {price:.2f} "
+                f"(SL: {qty:g}, Cost: {avg_cost:.2f}) "
+                f"PnL: {pnl:+.0f} ({pnl_pct:+.1f}%){signal_text}"
+            )
+            
+            # Add trailing stop info if enabled
+            if trailing_settings and trailing_settings['enabled']:
+                trailing_stop_price = await update_trailing_stop_price(user_id, symbol, price)
+                if trailing_stop_price is not None:
+                    status_lines.append(f"   🎯 Trailing: {trailing_stop_price:.2f} (Highest: {trailing_settings['highest_price']:.2f})")
         else:
-            print(f"No signals and not time for status update (minute: {current_time.minute})")
+            status_lines.append(f"❓ **{symbol}**: N/A (SL: {qty:g}, Cost: {avg_cost:.2f})")
+    
+    # Add summary if we have price data
+    if any_price_available and total_cost > 0:
+        total_pnl_pct = (total_pnl / total_cost) * 100
+        status_lines.append(f"\n💰 **Tổng PnL**: {total_pnl:+.0f} ({total_pnl_pct:+.1f}%)")
+    
+    # Add signal summary if any
+    if any_signal:
+        status_lines.append(f"\n🚨 **Có tín hiệu quan trọng!**")
+    
+    # Send status message
+    try:
+        print(f"🔍 Attempting to send portfolio status to user {user_id}, chat_id: {chat_id}")
+        await app.bot.send_message(chat_id=chat_id, text="\n".join(status_lines))
+        print(f"✅ Sent portfolio status to user {user_id}")
+    except Exception as e:
+        print(f"❌ Failed to send portfolio status to user {user_id}: {e}")
+        print(f"🔍 Chat ID type: {type(chat_id)}, value: {chat_id}")
 
 
 async def summarize_eod_and_outlook(app: Application, user_id: int, chat_id: str) -> None:
     positions = await get_positions(user_id)
     if not positions:
         try:
-            await app.bot.send_message(chat_id=chat_id, text="Tổng kết EOD: Danh mục trống.")
+            await app.bot.send_message(chat_id=chat_id, text="📊 **Tổng kết EOD:** Danh mục trống.")
             print(f"✅ Sent empty portfolio summary to user {user_id}")
         except Exception as e:
             print(f"❌ Failed to send empty portfolio summary to user {user_id}: {e}")
         return
 
-    lines: List[str] = ["Tổng kết cuối phiên & dự báo cho hôm sau:"]
+    current_time = datetime.now(VN_TZ)
+    lines: List[str] = [f"📊 **Tổng kết cuối phiên - {current_time.strftime('%H:%M:%S %d/%m/%Y')}**\n"]
+    
     total_pnl = 0.0
+    total_cost = 0.0
     any_price = False
+    any_signal = False
 
     for symbol, qty, avg_cost in positions:
         price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days=10)
-        price_str = f"{price:.2f}" if price is not None else "N/A"
-        pnl = None
+        
         if price is not None:
             any_price = True
             pnl = (price - avg_cost) * qty
+            pnl_pct = ((price - avg_cost) / avg_cost) * 100
+            cost_value = avg_cost * qty
+            current_value = price * qty
+            
             total_pnl += pnl
-        pnl_str = f"{pnl:.2f}" if pnl is not None else "N/A"
-
-        # Simple next-day outlook heuristic
-        outlook: str
-        if price is not None and avg_cost > 0:
-            change_pct = (price - avg_cost) / avg_cost
-            if vol is not None and vol_ma is not None and vol > vol_ma and change_pct > 0.03:
+            total_cost += cost_value
+            
+            # Price change indicator
+            if pnl > 0:
+                price_indicator = "📈"
+            elif pnl < 0:
+                price_indicator = "📉"
+            else:
+                price_indicator = "➡️"
+            
+            # Get individual stoploss for this stock
+            individual_sl_pct = await get_stock_stoploss(user_id, symbol)
+            sl_price = avg_cost * (1 - individual_sl_pct)
+            tp_price = avg_cost * (1 + 0.10)  # Default TP 10%
+            
+            # Check for signals
+            signal_text = ""
+            if price <= sl_price:
+                any_signal = True
+                signal_text = f" ⛔ STOPLOSS!"
+            elif price >= tp_price:
+                vol_ok = (vol is not None and vol_ma is not None and vol > vol_ma) or (vol is None or vol_ma is None)
+                if vol_ok:
+                    any_signal = True
+                    signal_text = f" ✅ BREAKOUT!"
+                else:
+                    signal_text = f" ⚠️ TP nhưng vol chưa xác nhận"
+            
+            # Simple next-day outlook heuristic
+            outlook: str
+            if vol is not None and vol_ma is not None and vol > vol_ma and pnl_pct > 3:
                 outlook = "Xu hướng tích cực, có thể theo dõi mua gia tăng nếu xác nhận."
-            elif change_pct < -0.03:
+            elif pnl_pct < -3:
                 outlook = "Áp lực bán, cân nhắc giảm tỷ trọng nếu thủng hỗ trợ."
             else:
                 outlook = "Trung tính, chờ tín hiệu rõ ràng."
+            
+            lines.append(
+                f"{price_indicator} **{symbol}**: {price:.2f} "
+                f"(SL: {qty:g}, Cost: {avg_cost:.2f}) "
+                f"PnL: {pnl:+.0f} ({pnl_pct:+.1f}%){signal_text}"
+            )
+            lines.append(f"   📊 SL: {sl_price:.2f} | TP: {tp_price:.2f} | Outlook: {outlook}")
         else:
-            outlook = "Thiếu dữ liệu, theo dõi thêm."
+            lines.append(f"❓ **{symbol}**: N/A (SL: {qty:g}, Cost: {avg_cost:.2f})")
 
-        lines.append(
-            f"- {symbol}: Giá={price_str}, SL={qty:g}, Giá vốn={avg_cost:.2f}, PnL={pnl_str}. Outlook: {outlook}"
-        )
-
+    # Add summary
+    if any_price and total_cost > 0:
+        total_pnl_pct = (total_pnl / total_cost) * 100
+        lines.append(f"\n💰 **Tổng PnL**: {total_pnl:+.0f} ({total_pnl_pct:+.1f}%)")
+    
+    # Add signal summary if any
+    if any_signal:
+        lines.append(f"\n🚨 **Có tín hiệu quan trọng cần chú ý!**")
+    
+    # Add next day outlook
+    lines.append(f"\n🔮 **Dự báo ngày mai:**")
     if any_price:
-        lines.append(f"Tổng PnL ước tính: {total_pnl:.2f}")
+        if total_pnl > 0:
+            lines.append("• Xu hướng tích cực, tiếp tục theo dõi")
+        elif total_pnl < 0:
+            lines.append("• Cần thận trọng, cân nhắc điều chỉnh danh mục")
+        else:
+            lines.append("• Trung tính, chờ tín hiệu rõ ràng")
+    else:
+        lines.append("• Thiếu dữ liệu, cần theo dõi thêm")
 
     try:
         await app.bot.send_message(chat_id=chat_id, text="\n".join(lines))
@@ -1993,16 +2079,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     assert update.effective_user is not None
     assert update.effective_chat is not None
     user_id = update.effective_user.id
-    chat_id = str(update.effective_chat.id)
+    chat_id = update.effective_chat.id
     await upsert_user(user_id, chat_id)
     await update.message.reply_text(
-        "Xin chào! Bot quản lý danh mục đã sẵn sàng. Dùng /help để xem hướng dẫn."
+        f"🚀 **Chào mừng đến với VN Stock Advisor Bot!**\n\n"
+        f"✅ **Đã kích hoạt bot cho user {user_id}**\n"
+        f"📱 **Chat ID: {chat_id}**\n\n"
+        "Bây giờ bot có thể gửi thông báo tự động cho bạn!\n"
+        "Dùng /help để xem hướng dẫn đầy đủ."
     )
 
+
+async def test_notification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Test notification command."""
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    await upsert_user(user_id, chat_id)
+    
+    test_message = (
+        "🧪 **Test Notification**\n\n"
+        f"✅ User ID: {user_id}\n"
+        f"📱 Chat ID: {chat_id}\n"
+        f"⏰ Time: {datetime.now(ZoneInfo('Asia/Ho_Chi_Minh')).strftime('%H:%M:%S')}\n\n"
+        "Nếu bạn thấy tin nhắn này, bot đã hoạt động bình thường!" 
+    )
+    
+    await update.message.reply_text(test_message)
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "Lệnh khả dụng:\n"
+        "/start — khởi động bot và kích hoạt thông báo\n"
+        "/test_notification — test khả năng gửi thông báo\n"
         "/add <mã> <số_lượng> <giá> <stoploss%> — mua thêm\n"
         "/sell <mã> <số_lượng> <giá> — bán\n"
         "/set_stoploss <mã> <phần trăm> — đặt stoploss cho từng cổ phiếu\n"
@@ -2043,6 +2151,26 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/market_report_off — tắt báo cáo tự động\n"
         "🔍 Tích hợp SERPER + Gemini/OpenAI cho phân tích tin tức\n"
         "📊 Dự báo VN-Index dựa trên sentiment + kỹ thuật\n"
+        "\n"
+        "🧪 Test & Debug:\n"
+        "/test_notification — gửi thông báo test ngay lập tức\n"
+        "/test_15s — bắt đầu test gửi thông báo mỗi 15 giây\n"
+        "/test_15s_stop — dừng test 15 giây\n"
+        "/test_job_status — xem trạng thái các job đang chạy\n"
+        "/test_price <mã> — test lấy giá real-time\n"
+        "/debug_pnl — debug tính toán lãi/lỗ chi tiết\n"
+        "\n"
+        "📊 Tracking 15s (Real-time):\n"
+        "/track_15s — bắt đầu tracking portfolio mỗi 15 giây\n"
+        "/track_15s_stop — dừng tracking 15 giây\n"
+        "🔄 Hiển thị giá real-time, PnL, và tổng kết danh mục\n"
+        "📈 Chỉ báo xu hướng: 📈 tăng, 📉 giảm, ➡️ không đổi\n"
+        "\n"
+        "🧠 Smart Tracking (Chỉ cảnh báo quan trọng):\n"
+        "/smart_track — bắt đầu smart tracking 15s\n"
+        "/smart_track_stop — dừng smart tracking\n"
+        "🚨 Chỉ gửi thông báo khi: Stoploss, Take Profit, Volume bất thường\n"
+        "💡 Gợi ý hành động cụ thể cho từng tình huống\n"
         "\n"
         "💡 Phong cách đầu tư (theo từng cổ phiếu):\n"
         "• SHORT_TERM: 1-2 tuần, trading T+, dữ liệu 3 tháng\n"
@@ -2653,37 +2781,99 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     try:
         # Ensure we store chat_id for this user (needed by scheduler)
-        await upsert_user(user_id, str(chat_id))
+        await upsert_user(user_id, chat_id)
+
+        # Check if user has any positions
+        positions = await get_positions(user_id)
+        if not positions:
+            await update.message.reply_text(
+                "❌ **Danh mục trống!**\n\n"
+                "Bạn cần có cổ phiếu trong danh mục trước khi bật tracking tự động.\n"
+                "Sử dụng `/add <mã> <số_lượng> <giá> <stoploss%>` để thêm cổ phiếu.\n\n"
+                "**Ví dụ:** `/add VIC 100 45000 0.08`"
+            )
+            return
 
         # Enable tracking with default settings (sl_pct will be overridden by individual stock stoploss)
         await set_tracking_settings(user_id, enabled=True, sl_pct=0.05, tp_pct=0.10, vol_ma_days=20)
         print(f"Track ON: Enabled tracking for user {user_id}")
         
-        # Schedule tracking jobs
+        # Start smart tracking during trading hours (9:00-15:00 VN time)
+        smart_job_name = f"smart_track_{user_id}"
+        for job in context.application.job_queue.get_jobs_by_name(smart_job_name):
+            job.schedule_removal()
+        
+        # Schedule smart tracking job every 15 seconds during trading hours
+        job_data = {'user_id': user_id, 'chat_id': str(chat_id)}
+        
+        # Get current time
+        current_time = datetime.now(VN_TZ)
+        current_hour = current_time.hour
+        
+        # Check if we're in trading hours (9:00-15:00)
+        if 9 <= current_hour < 15:
+            # Currently in trading hours - start immediately
+            context.application.job_queue.run_repeating(
+                name=smart_job_name,
+                interval=timedelta(seconds=15),
+                first=datetime.now(VN_TZ) + timedelta(seconds=2),  # Start after 2 seconds
+                callback=smart_track_15s_callback,
+                data=job_data,
+            )
+            next_tracking = "Ngay bây giờ (15s)"
+            trading_status = "🟢 Đang trong giờ giao dịch"
+        else:
+            # Outside trading hours - schedule for next trading day
+            next_trading_start = datetime.combine(
+                current_time.date() + timedelta(days=1) if current_hour >= 15 else current_time.date(),
+                time(9, 0, 0, tzinfo=VN_TZ)
+            )
+            context.application.job_queue.run_repeating(
+                name=smart_job_name,
+                interval=timedelta(seconds=15),
+                first=next_trading_start,
+                callback=smart_track_15s_callback,
+                data=job_data,
+            )
+            next_tracking = f"09:00 ngày {next_trading_start.strftime('%d/%m')}"
+            trading_status = "🔴 Ngoài giờ giao dịch"
+        
+        # Also schedule traditional tracking jobs for scheduled times
         await schedule_tracking_jobs(context.application, user_id)
-        print(f"Track ON: Scheduled jobs for user {user_id}")
+        print(f"Track ON: Scheduled smart tracking + traditional jobs for user {user_id}")
         
         # Verify jobs were scheduled
         job_queue = context.application.job_queue
+        user_jobs = []
         if job_queue:
             all_jobs = list(job_queue.jobs())
             user_jobs = [job for job in all_jobs if job.name and f"track_" in job.name and str(user_id) in job.name]
             print(f"Track ON: Found {len(user_jobs)} jobs for user {user_id}")
         
         await update.message.reply_text(
-            "✅ **Tracking đã được bật!**\n\n"
-            "Bot sẽ tự động theo dõi portfolio của bạn:\n"
-            "• 09:05 - ATO check\n"
-            "• 09:15-10:30 - Mỗi 5 phút\n"
-            "• 10:30-13:30 - Mỗi 5 phút\n"
-            "• 13:30-14:30 - Mỗi 5 phút\n"
-            "• 14:35 - ATC check\n"
-            "• 14:40 - Tóm tắt cuối ngày\n\n"
-            "⚠️ **Lưu ý quan trọng:**\n"
-            "Để nhận được thông báo tự động, bạn cần bắt đầu cuộc trò chuyện với bot trước.\n"
-            "Hãy gửi bất kỳ tin nhắn nào (ví dụ: /help) để bot có thể gửi thông báo cho bạn.\n\n"
-            "Sử dụng `/track_config` để tùy chỉnh cài đặt.\n"
-            f"Đã schedule {len(user_jobs) if 'user_jobs' in locals() else 'N/A'} jobs.",
+            f"✅ **Smart Tracking đã được bật!**\n\n"
+            f"📊 **Danh mục:** {len(positions)} cổ phiếu\n"
+            f"• {', '.join([pos[0] for pos in positions])}\n\n"
+            f"⏰ **Trạng thái:** {trading_status}\n"
+            f"🔄 **Lần theo dõi tiếp theo:** {next_tracking}\n\n"
+            f"🧠 **Smart Tracking (15s trong giờ giao dịch 9:00-15:00):**\n"
+            f"• 🚨 Stoploss: Giá ≤ SL → Gợi ý SELL\n"
+            f"• 🎯 Take Profit: Giá ≥ TP + Volume → Gợi ý chốt lời/mua thêm\n"
+            f"• 📊 Volume Spike: Tăng >50% → Gợi ý mua thêm\n"
+            f"• 📉 Volume Drop: Giảm >30% → Gợi ý giảm tỷ trọng\n\n"
+            f"⏰ **Lịch theo dõi truyền thống:**\n"
+            f"• 09:05 - ATO check\n"
+            f"• 09:15-10:30 - Mỗi 5 phút\n"
+            f"• 10:30-13:30 - Mỗi 5 phút\n"
+            f"• 13:30-14:30 - Mỗi 5 phút\n"
+            f"• 14:35 - ATC check\n"
+            f"• 14:40 - Tóm tắt cuối ngày\n\n"
+            f"📈 **Jobs đã lên lịch:** {len(user_jobs)}\n\n"
+            f"💡 **Lưu ý:**\n"
+            f"• Bot chỉ gửi thông báo khi có tín hiệu quan trọng\n"
+            f"• Tracking 15s chỉ hoạt động trong giờ giao dịch\n"
+            f"• Sử dụng `/track_15s` để xem tất cả thông tin\n"
+            f"• Sử dụng `/smart_track_stop` để tắt smart tracking",
             parse_mode=ParseMode.MARKDOWN
         )
         
@@ -2699,15 +2889,25 @@ async def track_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Disable tracking
     await set_tracking_settings(user_id, enabled=False, sl_pct=0.05, tp_pct=0.10, vol_ma_days=20)
     
-    # Remove tracking jobs
+    # Remove traditional tracking jobs
     for tag in ["ato_once", "morning_5m", "mid_5m", "late_5m", "atc_once", "summary_once"]:
         for job in context.application.job_queue.get_jobs_by_name(_track_job_name(user_id, tag)):
             job.schedule_removal()
     
+    # Remove smart tracking job
+    smart_job_name = f"smart_track_{user_id}"
+    smart_jobs_removed = 0
+    for job in context.application.job_queue.get_jobs_by_name(smart_job_name):
+        job.schedule_removal()
+        smart_jobs_removed += 1
+    
     await update.message.reply_text(
-        "❌ **Tracking đã được tắt!**\n\n"
-        "Bot sẽ không tự động theo dõi portfolio nữa.\n"
-        "Sử dụng `/track_on` để bật lại.",
+        f"❌ **Tracking đã được tắt!**\n\n"
+        f"Đã tắt tất cả tracking:\n"
+        f"• Traditional tracking jobs\n"
+        f"• Smart tracking jobs: {smart_jobs_removed}\n\n"
+        f"Bot sẽ không tự động theo dõi portfolio nữa.\n"
+        f"Sử dụng `/track_on` để bật lại.",
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -2729,9 +2929,21 @@ async def track_config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     stoploss_text = "\n".join(stoploss_info) if stoploss_info else "Chưa có cổ phiếu nào"
     
+    # Get current jobs status
+    job_queue = context.application.job_queue
+    user_jobs = []
+    if job_queue:
+        all_jobs = list(job_queue.jobs())
+        user_jobs = [job for job in all_jobs if job.name and f"track_" in job.name and str(user_id) in job.name]
+    
+    # Get current time and next tracking time
+    current_time = datetime.now(VN_TZ)
+    next_tracking = "09:05" if current_time.time() < time(9, 5) else "Hôm sau 09:05"
+    
     await update.message.reply_text(
         f"📊 **Cấu hình Tracking hiện tại:**\n\n"
         f"**Trạng thái:** {status}\n"
+        f"**Danh mục:** {len(positions)} cổ phiếu\n"
         f"**Stop Loss theo cổ phiếu:**\n{stoploss_text}\n"
         f"**Take Profit:** {tp_pct*100:.0f}%\n"
         f"**Volume MA:** {vol_ma_days} ngày\n\n"
@@ -2742,9 +2954,14 @@ async def track_config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"• 13:30-14:30 - Mỗi 5 phút\n"
         f"• 14:35 - ATC check\n"
         f"• 14:40 - Tóm tắt cuối ngày\n\n"
+        f"**Thông tin hiện tại:**\n"
+        f"• Lần theo dõi tiếp theo: {next_tracking}\n"
+        f"• Jobs đang chạy: {len(user_jobs)}\n"
+        f"• Thời gian hiện tại: {current_time.strftime('%H:%M:%S %d/%m/%Y')}\n\n"
         f"**Commands:**\n"
         f"• `/track_on` - Bật tracking\n"
         f"• `/track_off` - Tắt tracking\n"
+        f"• `/track_15s` - Tracking real-time 15s\n"
         f"• `/track_config` - Xem cấu hình",
         parse_mode=ParseMode.MARKDOWN
     )
@@ -2757,7 +2974,7 @@ async def track_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     user_id = update.effective_user.id
     # Ensure current chat is recorded to avoid stale chat_id issues
     try:
-        await upsert_user(user_id, str(update.effective_chat.id))
+        await upsert_user(user_id, update.effective_chat.id)
     except Exception:
         pass
     jq = context.application.job_queue
@@ -2887,23 +3104,71 @@ async def market_report_schedule_cmd(update: Update, context: ContextTypes.DEFAU
         # Ensure user is registered
         await upsert_user(user_id, chat_id)
         
+        # Check if market analysis is available
+        if not MARKET_ANALYSIS_AVAILABLE:
+            await update.message.reply_text(
+                "❌ **Chức năng phân tích thị trường chưa khả dụng!**\n\n"
+                "Vui lòng kiểm tra cài đặt API keys trong môi trường:\n"
+                "• SERPER_API_KEY\n"
+                "• GEMINI_API_KEY (tùy chọn)\n"
+                "• OPENAI_API_KEY (tùy chọn)\n\n"
+                "Sau khi cấu hình, hãy khởi động lại bot."
+            )
+            return
+        
+        # Check if we have required API keys
+        if not SERPER_API_KEY:
+            await update.message.reply_text(
+                "❌ **Thiếu SERPER_API_KEY!**\n\n"
+                "Vui lòng cấu hình SERPER_API_KEY trong file .env để sử dụng chức năng này.\n"
+                "SERPER_API_KEY là bắt buộc để lấy tin tức thị trường."
+            )
+            return
+        
+        # Remove any existing market report jobs first
+        job_name = f"daily_market_report_{user_id}"
+        jobs_removed = 0
+        for job in context.application.job_queue.get_jobs_by_name(job_name):
+            job.schedule_removal()
+            jobs_removed += 1
+        
         # Schedule daily market report
         await schedule_daily_market_report(context.application, user_id)
         
+        # Get current time to show next report time
+        current_time = datetime.now(VN_TZ)
+        next_report = "08:15 hôm nay" if current_time.time() < time(8, 15) else "08:15 ngày mai"
+        
+        # Check API keys status
+        api_status = []
+        if SERPER_API_KEY:
+            api_status.append("✅ SERPER_API_KEY")
+        if GEMINI_API_KEY:
+            api_status.append("✅ GEMINI_API_KEY")
+        if OPENAI_API_KEY:
+            api_status.append("✅ OPENAI_API_KEY")
+        
+        api_status_text = "\n".join(api_status) if api_status else "❌ Không có API keys"
+        
         await update.message.reply_text(
-            "✅ **Đã lên lịch báo cáo thị trường hàng ngày!**\n\n"
-            "📊 Bot sẽ gửi báo cáo phân tích thị trường vào **8:15 sáng** hàng ngày.\n\n"
-            "🔍 Báo cáo bao gồm:\n"
-            "• Dự báo xu hướng VN-Index\n"
-            "• Phân tích tin tức trong nước & quốc tế\n"
-            "• Tín hiệu kỹ thuật\n"
-            "• Khuyến nghị đầu tư\n\n"
-            "Sử dụng `/market_report` để xem báo cáo ngay lập tức.",
+            f"✅ **Đã lên lịch báo cáo thị trường hàng ngày!**\n\n"
+            f"📊 **Lịch báo cáo:** {next_report}\n"
+            f"🔄 **Jobs đã xóa:** {jobs_removed}\n\n"
+            f"🔍 **Báo cáo bao gồm:**\n"
+            f"• Dự báo xu hướng VN-Index\n"
+            f"• Phân tích tin tức trong nước & quốc tế\n"
+            f"• Tín hiệu kỹ thuật\n"
+            f"• Khuyến nghị đầu tư\n\n"
+            f"🔑 **API Keys Status:**\n{api_status_text}\n\n"
+            f"💡 **Lưu ý:**\n"
+            f"• Sử dụng `/market_report` để xem báo cáo ngay lập tức\n"
+            f"• Sử dụng `/market_report_off` để tắt báo cáo tự động",
             parse_mode=ParseMode.MARKDOWN
         )
         
     except Exception as e:
         await update.message.reply_text(f"❌ Lỗi khi lên lịch báo cáo: {str(e)}")
+        print(f"❌ Error in market_report_schedule_cmd: {e}")
 
 
 async def market_report_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2950,6 +3215,686 @@ async def test_price_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text(f"❌ Không thể lấy giá cho {symbol}")
     except Exception as e:
         await update.message.reply_text(f"❌ Lỗi: {str(e)}")
+
+
+async def test_notification_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Test notification system by sending a test message."""
+    assert update.effective_user is not None
+    assert update.effective_chat is not None
+    user_id = update.effective_user.id
+    chat_id = str(update.effective_chat.id)
+    
+    try:
+        # Ensure user is registered
+        await upsert_user(user_id, chat_id)
+        
+        # Send test message
+        test_message = (
+            f"🧪 **TEST NOTIFICATION**\n\n"
+            f"⏰ Thời gian: {datetime.now(VN_TZ).strftime('%H:%M:%S %d/%m/%Y')}\n"
+            f"👤 User ID: {user_id}\n"
+            f"💬 Chat ID: {chat_id}\n"
+            f"✅ Bot có thể gửi tin nhắn thành công!"
+        )
+        
+        await update.message.reply_text(test_message, parse_mode=ParseMode.MARKDOWN)
+        print(f"✅ Test notification sent to user {user_id} in chat {chat_id}")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi khi gửi test notification: {str(e)}")
+        print(f"❌ Error in test_notification_cmd: {e}")
+
+
+async def test_15s_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Start 15-second interval test notifications."""
+    assert update.effective_user is not None
+    assert update.effective_chat is not None
+    user_id = update.effective_user.id
+    chat_id = str(update.effective_chat.id)
+    
+    try:
+        # Ensure user is registered
+        await upsert_user(user_id, chat_id)
+        
+        # Remove any existing test job
+        test_job_name = f"test_15s_{user_id}"
+        for job in context.application.job_queue.get_jobs_by_name(test_job_name):
+            job.schedule_removal()
+        
+        # Schedule repeating test job every 15 seconds
+        job_data = {'user_id': user_id, 'chat_id': chat_id}
+        context.application.job_queue.run_repeating(
+            name=test_job_name,
+            interval=timedelta(seconds=15),
+            first=datetime.now(VN_TZ) + timedelta(seconds=2),  # Start after 2 seconds
+            callback=test_15s_callback,
+            data=job_data,
+        )
+        
+        await update.message.reply_text(
+            f"🧪 **Bắt đầu test 15 giây!**\n\n"
+            f"Bot sẽ gửi thông báo test mỗi 15 giây.\n"
+            f"⏰ Bắt đầu sau 2 giây...\n\n"
+            f"Sử dụng `/test_15s_stop` để dừng test."
+        )
+        print(f"✅ Started 15s test for user {user_id}")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi khi bắt đầu test 15s: {str(e)}")
+        print(f"❌ Error in test_15s_cmd: {e}")
+
+
+async def test_15s_stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Stop 15-second interval test notifications."""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    try:
+        # Remove test job
+        test_job_name = f"test_15s_{user_id}"
+        jobs_removed = 0
+        for job in context.application.job_queue.get_jobs_by_name(test_job_name):
+            job.schedule_removal()
+            jobs_removed += 1
+        
+        if jobs_removed > 0:
+            await update.message.reply_text(
+                f"⏹️ **Đã dừng test 15 giây!**\n\n"
+                f"Đã xóa {jobs_removed} job test."
+            )
+            print(f"✅ Stopped 15s test for user {user_id}")
+        else:
+            await update.message.reply_text("ℹ️ Không có test 15s nào đang chạy.")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi khi dừng test 15s: {str(e)}")
+        print(f"❌ Error in test_15s_stop_cmd: {e}")
+
+
+async def test_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback for 15-second test notifications."""
+    try:
+        job = ctx.job
+        user_id = job.data.get('user_id')
+        chat_id = job.data.get('chat_id')
+        
+        if not user_id or not chat_id:
+            print("Test 15s callback: Missing user_id or chat_id")
+            return
+        
+        # Create test message
+        current_time = datetime.now(VN_TZ)
+        test_message = (
+            f"🧪 **TEST 15s NOTIFICATION**\n\n"
+            f"⏰ Thời gian: {current_time.strftime('%H:%M:%S %d/%m/%Y')}\n"
+            f"👤 User ID: {user_id}\n"
+            f"💬 Chat ID: {chat_id}\n"
+            f"🔄 Test notification #{job.data.get('count', 1)}\n"
+            f"✅ Bot hoạt động bình thường!"
+        )
+        
+        # Send test message
+        await ctx.application.bot.send_message(
+            chat_id=chat_id,
+            text=test_message,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        # Update counter
+        job.data['count'] = job.data.get('count', 0) + 1
+        
+        print(f"✅ Test 15s notification #{job.data.get('count', 1)} sent to user {user_id}")
+        
+    except Exception as e:
+        print(f"❌ Error in test_15s_callback: {e}")
+        # Try to send error message to user
+        try:
+            job = ctx.job
+            user_id = job.data.get('user_id')
+            chat_id = job.data.get('chat_id')
+            if user_id and chat_id:
+                await ctx.application.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"❌ Lỗi trong test 15s: {str(e)}"
+                )
+        except Exception as e2:
+            print(f"❌ Error sending error message: {e2}")
+
+
+async def test_job_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show status of all test jobs."""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    try:
+        jq = context.application.job_queue
+        if jq is None:
+            await update.message.reply_text("❌ JobQueue is None")
+            return
+        
+        # Get all jobs for this user
+        all_jobs = list(jq.jobs())
+        user_jobs = [job for job in all_jobs if job.name and str(user_id) in job.name]
+        
+        if not user_jobs:
+            await update.message.reply_text("ℹ️ Không có job nào đang chạy cho user này.")
+            return
+        
+        lines = [f"📊 **Job Status cho User {user_id}:**\n"]
+        
+        for job in user_jobs:
+            next_run = getattr(job, "next_t", None) or getattr(job, "next_run_time", None)
+            job_type = job.data.get('job_type', 'unknown') if hasattr(job, 'data') else 'unknown'
+            count = job.data.get('count', 0) if hasattr(job, 'data') else 0
+            
+            lines.append(f"• **{job.name}**")
+            lines.append(f"  - Type: {job_type}")
+            lines.append(f"  - Next run: {next_run}")
+            if count > 0:
+                lines.append(f"  - Count: {count}")
+            lines.append("")
+        
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi khi kiểm tra job status: {str(e)}")
+        print(f"❌ Error in test_job_status_cmd: {e}")
+
+
+async def track_15s_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Start 15-second interval portfolio tracking."""
+    assert update.effective_user is not None
+    assert update.effective_chat is not None
+    user_id = update.effective_user.id
+    chat_id = str(update.effective_chat.id)
+    
+    try:
+        # Ensure user is registered
+        await upsert_user(user_id, chat_id)
+        
+        # Check if user has any positions
+        positions = await get_positions(user_id)
+        if not positions:
+            await update.message.reply_text(
+                "❌ **Danh mục trống!**\n\n"
+                "Bạn cần có cổ phiếu trong danh mục trước khi bật tracking 15s.\n"
+                "Sử dụng `/add <mã> <số_lượng> <giá> <stoploss%>` để thêm cổ phiếu."
+            )
+            return
+        
+        # Remove any existing tracking 15s job
+        track_job_name = f"track_15s_{user_id}"
+        for job in context.application.job_queue.get_jobs_by_name(track_job_name):
+            job.schedule_removal()
+        
+        # Schedule repeating tracking job every 15 seconds
+        job_data = {'user_id': user_id, 'chat_id': chat_id}
+        context.application.job_queue.run_repeating(
+            name=track_job_name,
+            interval=timedelta(seconds=15),
+            first=datetime.now(VN_TZ) + timedelta(seconds=2),  # Start after 2 seconds
+            callback=track_15s_callback,
+            data=job_data,
+        )
+        
+        await update.message.reply_text(
+            f"📊 **Bắt đầu tracking 15 giây!**\n\n"
+            f"Bot sẽ theo dõi {len(positions)} cổ phiếu mỗi 15 giây:\n"
+            f"• {', '.join([pos[0] for pos in positions])}\n\n"
+            f"⏰ Bắt đầu sau 2 giây...\n\n"
+            f"Sử dụng `/track_15s_stop` để dừng tracking."
+        )
+        print(f"✅ Started 15s portfolio tracking for user {user_id}")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi khi bắt đầu tracking 15s: {str(e)}")
+        print(f"❌ Error in track_15s_cmd: {e}")
+
+
+async def track_15s_stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Stop 15-second interval portfolio tracking."""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    try:
+        # Remove tracking 15s job
+        track_job_name = f"track_15s_{user_id}"
+        jobs_removed = 0
+        for job in context.application.job_queue.get_jobs_by_name(track_job_name):
+            job.schedule_removal()
+            jobs_removed += 1
+        
+        if jobs_removed > 0:
+            await update.message.reply_text(
+                f"⏹️ **Đã dừng tracking 15 giây!**\n\n"
+                f"Đã xóa {jobs_removed} job tracking."
+            )
+            print(f"✅ Stopped 15s portfolio tracking for user {user_id}")
+        else:
+            await update.message.reply_text("ℹ️ Không có tracking 15s nào đang chạy.")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi khi dừng tracking 15s: {str(e)}")
+        print(f"❌ Error in track_15s_stop_cmd: {e}")
+
+
+async def smart_track_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Start smart 15-second interval portfolio tracking - only alerts on important signals."""
+    assert update.effective_user is not None
+    assert update.effective_chat is not None
+    user_id = update.effective_user.id
+    chat_id = str(update.effective_chat.id)
+    
+    try:
+        # Ensure user is registered
+        await upsert_user(user_id, chat_id)
+        
+        # Check if user has any positions
+        positions = await get_positions(user_id)
+        if not positions:
+            await update.message.reply_text(
+                "❌ **Danh mục trống!**\n\n"
+                "Bạn cần có cổ phiếu trong danh mục trước khi bật smart tracking.\n"
+                "Sử dụng `/add <mã> <số_lượng> <giá> <stoploss%>` để thêm cổ phiếu.\n\n"
+                "**Ví dụ:** `/add VIC 100 45000 0.08`"
+            )
+            return
+        
+        # Remove any existing smart tracking job
+        smart_job_name = f"smart_track_{user_id}"
+        for job in context.application.job_queue.get_jobs_by_name(smart_job_name):
+            job.schedule_removal()
+        
+        # Schedule repeating smart tracking job every 15 seconds
+        job_data = {'user_id': user_id, 'chat_id': chat_id}
+        context.application.job_queue.run_repeating(
+            name=smart_job_name,
+            interval=timedelta(seconds=15),
+            first=datetime.now(VN_TZ) + timedelta(seconds=2),  # Start after 2 seconds
+            callback=smart_track_15s_callback,
+            data=job_data,
+        )
+        
+        await update.message.reply_text(
+            f"🧠 **Bắt đầu Smart Tracking!**\n\n"
+            f"📊 **Danh mục:** {len(positions)} cổ phiếu\n"
+            f"• {', '.join([pos[0] for pos in positions])}\n\n"
+            f"🚨 **Chỉ cảnh báo khi:**\n"
+            f"• 🚨 Stoploss: Giá ≤ SL → Gợi ý SELL\n"
+            f"• 🎯 Take Profit: Giá ≥ TP + Volume xác nhận → Gợi ý chốt lời/mua thêm\n"
+            f"• 📊 Volume Spike: Tăng >50% → Gợi ý mua thêm\n"
+            f"• 📉 Volume Drop: Giảm >30% → Gợi ý giảm tỷ trọng\n\n"
+            f"⏰ Bắt đầu sau 2 giây...\n\n"
+            f"Sử dụng `/smart_track_stop` để dừng tracking."
+        )
+        print(f"✅ Started smart tracking for user {user_id}")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi khi bắt đầu smart tracking: {str(e)}")
+        print(f"❌ Error in smart_track_cmd: {e}")
+
+
+async def smart_track_stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Stop smart 15-second interval portfolio tracking."""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    try:
+        # Remove smart tracking job
+        smart_job_name = f"smart_track_{user_id}"
+        jobs_removed = 0
+        for job in context.application.job_queue.get_jobs_by_name(smart_job_name):
+            job.schedule_removal()
+            jobs_removed += 1
+        
+        if jobs_removed > 0:
+            await update.message.reply_text(
+                f"⏹️ **Đã dừng Smart Tracking!**\n\n"
+                f"Đã xóa {jobs_removed} job smart tracking."
+            )
+            print(f"✅ Stopped smart tracking for user {user_id}")
+        else:
+            await update.message.reply_text("ℹ️ Không có smart tracking nào đang chạy.")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Lỗi khi dừng smart tracking: {str(e)}")
+        print(f"❌ Error in smart_track_stop_cmd: {e}")
+
+
+async def track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback for 15-second portfolio tracking."""
+    try:
+        job = ctx.job
+        user_id = job.data.get('user_id')
+        chat_id = job.data.get('chat_id')
+        
+        if not user_id or not chat_id:
+            print("Track 15s callback: Missing user_id or chat_id")
+            return
+        
+        # Get user's positions
+        positions = await get_positions(user_id)
+        if not positions:
+            print(f"Track 15s: No positions found for user {user_id}")
+            return
+        
+        # Get current time
+        current_time = datetime.now(VN_TZ)
+        
+        # Create tracking message
+        lines = [f"📊 **Portfolio Tracking - {current_time.strftime('%H:%M:%S')}**\n"]
+        
+        total_pnl = 0.0
+        total_cost = 0.0
+        any_price_available = False
+        
+        for symbol, qty, avg_cost in positions:
+            # Get current price
+            price = await MarketData.get_price(symbol)
+            
+            if price is not None:
+                any_price_available = True
+                pnl = (price - avg_cost) * qty
+                pnl_pct = ((price - avg_cost) / avg_cost) * 100
+                cost_value = avg_cost * qty
+                current_value = price * qty
+                
+                total_pnl += pnl
+                total_cost += cost_value
+                
+                # Price change indicator
+                if pnl > 0:
+                    price_indicator = "📈"
+                elif pnl < 0:
+                    price_indicator = "📉"
+                else:
+                    price_indicator = "➡️"
+                
+                lines.append(
+                    f"{price_indicator} **{symbol}**: {price:.2f} "
+                    f"(SL: {qty:g}, Cost: {avg_cost:.2f}) "
+                    f"PnL: {pnl:+.0f} ({pnl_pct:+.1f}%)"
+                )
+            else:
+                lines.append(f"❓ **{symbol}**: N/A (SL: {qty:g}, Cost: {avg_cost:.2f})")
+        
+        # Add summary if we have price data
+        if any_price_available and total_cost > 0:
+            total_pnl_pct = (total_pnl / total_cost) * 100
+            lines.append(f"\n💰 **Tổng PnL**: {total_pnl:+.0f} ({total_pnl_pct:+.1f}%)")
+        
+        # Add tracking info
+        lines.append(f"\n🔄 Tracking #{job.data.get('count', 1)} | Next: 15s")
+        
+        # Send tracking message
+        message_text = "\n".join(lines)
+        await ctx.application.bot.send_message(
+            chat_id=chat_id,
+            text=message_text,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        # Update counter
+        job.data['count'] = job.data.get('count', 0) + 1
+        
+        print(f"✅ Track 15s notification #{job.data.get('count', 1)} sent to user {user_id}")
+        
+    except Exception as e:
+        print(f"❌ Error in track_15s_callback: {e}")
+        # Try to send error message to user
+        try:
+            job = ctx.job
+            user_id = job.data.get('user_id')
+            chat_id = job.data.get('chat_id')
+            if user_id and chat_id:
+                await ctx.application.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"❌ Lỗi trong tracking 15s: {str(e)}"
+                )
+        except Exception as e2:
+            print(f"❌ Error sending error message: {e2}")
+
+
+async def smart_track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback for smart 15-second portfolio tracking - only alerts on important signals."""
+    try:
+        job = ctx.job
+        user_id = job.data.get('user_id')
+        chat_id = job.data.get('chat_id')
+        
+        if not user_id or not chat_id:
+            print("Smart track 15s callback: Missing user_id or chat_id")
+            return
+        
+        # Get user's positions
+        positions = await get_positions(user_id)
+        if not positions:
+            print(f"Smart track 15s: No positions found for user {user_id}")
+            return
+        
+        # Get tracking settings
+        enabled, sl_pct, tp_pct, vol_ma_days = await get_tracking_settings(user_id)
+        if not enabled:
+            print(f"Smart track 15s: Tracking disabled for user {user_id}")
+            return
+        
+        # Get current time
+        current_time = datetime.now(VN_TZ)
+        current_hour = current_time.hour
+        
+        # Only run during trading hours (9:00-15:00 VN time)
+        if not (9 <= current_hour < 15):
+            print(f"🔕 Smart track: Outside trading hours ({current_time.strftime('%H:%M')}) - skipping")
+            return
+        
+        # Update counter first
+        current_count = job.data.get('count', 0) + 1
+        job.data['count'] = current_count
+        
+        print(f"🔍 Smart tracking check #{current_count} for user {user_id} at {current_time.strftime('%H:%M:%S')}")
+        
+        # Check for alerts
+        alerts = []
+        any_alert = False
+        
+        for symbol, qty, avg_cost in positions:
+            # Get current price and volume data
+            price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days)
+            
+            if price is None:
+                print(f"  ❓ {symbol}: No price data available")
+                continue
+            
+            print(f"  📊 {symbol}: Price={price:.2f}, Qty={qty}, Cost={avg_cost:.2f}")
+            print(f"    📊 Volume: {vol}, MA: {vol_ma}")
+            
+            # Calculate PnL
+            pnl = (price - avg_cost) * qty
+            pnl_pct = ((price - avg_cost) / avg_cost) * 100
+            
+            # Get individual stoploss for this stock
+            individual_sl_pct = await get_stock_stoploss(user_id, symbol)
+            sl_price = avg_cost * (1 - individual_sl_pct)
+            tp_price = avg_cost * (1 + tp_pct)
+            
+            print(f"    📈 {symbol}: SL={sl_price:.2f} ({individual_sl_pct*100:.1f}%), TP={tp_price:.2f} ({tp_pct*100:.1f}%)")
+            
+            # 1. Check Stoploss
+            if price <= sl_price:
+                any_alert = True
+                alerts.append(
+                    f"🚨 **STOPLOSS ALERT - {symbol}**\n"
+                    f"💰 Giá: {price:.2f} ≤ {sl_price:.2f} ({individual_sl_pct*100:.1f}%)\n"
+                    f"📉 PnL: {pnl:+.0f} ({pnl_pct:+.1f}%)\n"
+                    f"⚠️ **Gợi ý: SELL ngay để hạn chế rủi ro!**"
+                )
+                print(f"    ⛔ STOPLOSS ALERT: {symbol} - Price: {price:.2f} <= SL: {sl_price:.2f}")
+            
+            # 2. Check Take Profit
+            elif price >= tp_price:
+                # Check volume confirmation
+                vol_ok = (vol is not None and vol_ma is not None and vol > vol_ma) or (vol is None or vol_ma is None)
+                
+                if vol_ok:
+                    any_alert = True
+                    alerts.append(
+                        f"🎯 **TAKE PROFIT ALERT - {symbol}**\n"
+                        f"💰 Giá: {price:.2f} ≥ {tp_price:.2f} ({tp_pct*100:.1f}%)\n"
+                        f"📈 PnL: {pnl:+.0f} ({pnl_pct:+.1f}%)\n"
+                        f"📊 Volume: {'Tăng' if vol and vol_ma and vol > vol_ma else 'N/A'}\n"
+                        f"✅ **Gợi ý: Chốt lời hoặc mua thêm nếu xu hướng mạnh!**"
+                    )
+                    print(f"    ✅ TAKE PROFIT ALERT: {symbol} - Price: {price:.2f} >= TP: {tp_price:.2f}")
+                else:
+                    # Price hit TP but volume not confirmed
+                    alerts.append(
+                        f"⚠️ **{symbol}**: Giá {price:.2f} ≥ {tp_price:.2f} nhưng volume chưa xác nhận. Theo dõi thêm."
+                    )
+                    print(f"    ⚠️ {symbol}: Price hit TP but volume not confirmed")
+            
+            # 3. Check Volume Anomaly - Compare with historical data
+            elif vol is not None and vol_ma is not None:
+                vol_change_pct = ((vol - vol_ma) / vol_ma) * 100
+                
+                # Smart volume anomaly detection based on time of day
+                try:
+                    import pandas as pd
+                    from vnstock import Quote
+                    quote = Quote(source='VCI', symbol=symbol)
+                    current_time = datetime.now(VN_TZ)
+                    current_hour = current_time.hour
+                    current_minute = current_time.minute
+                    
+                    # Get intraday data for the same time period comparison
+                    today = datetime.now().date()
+                    start_date = (today - timedelta(days=10)).strftime("%Y-%m-%d")
+                    end_date = today.strftime("%Y-%m-%d")
+                    
+                    # Get historical intraday data for comparison
+                    df_intraday = quote.intraday()
+                    if df_intraday is not None and len(df_intraday) > 0:
+                        # Convert index to datetime if it's not already
+                        if not isinstance(df_intraday.index, pd.DatetimeIndex):
+                            df_intraday.index = pd.to_datetime(df_intraday.index)
+                        
+                        # Get current time slot data (e.g., 9:15-9:30)
+                        time_slot_start = current_hour * 60 + current_minute - 15  # 15 minutes window
+                        time_slot_end = current_hour * 60 + current_minute + 15
+                        
+                        # Filter data for similar time slots in the past
+                        df_intraday['time_minutes'] = df_intraday.index.hour * 60 + df_intraday.index.minute
+                        similar_time_data = df_intraday[
+                            (df_intraday['time_minutes'] >= time_slot_start) & 
+                            (df_intraday['time_minutes'] <= time_slot_end)
+                        ]
+                        
+                        if len(similar_time_data) >= 5:  # Need at least 5 similar time slots
+                            similar_volumes = similar_time_data['volume'].dropna()
+                            if len(similar_volumes) > 0:
+                                similar_vol_mean = float(similar_volumes.mean())
+                                similar_vol_std = float(similar_volumes.std())
+                                
+                                # Calculate z-score based on similar time periods
+                                z_score = (vol - similar_vol_mean) / similar_vol_std if similar_vol_std > 0 else 0
+                                
+                                print(f"    📊 {symbol}: Vol={vol:,.0f}, SimilarTime_Mean={similar_vol_mean:,.0f}, Std={similar_vol_std:,.0f}, Z-score={z_score:.2f}")
+                                
+                                # More reasonable thresholds for intraday comparison
+                                if z_score > 2.0:  # Volume significantly higher than similar time periods
+                                    any_alert = True
+                                    alerts.append(
+                                        f"📊 **VOLUME SPIKE - {symbol}**\n"
+                                        f"💰 Giá: {price:.2f}\n"
+                                        f"📈 Volume: {vol:,.0f} (Z-score: {z_score:.2f})\n"
+                                        f"📊 Similar Time Avg: {similar_vol_mean:,.0f}\n"
+                                        f"📈 Change: +{vol_change_pct:.1f}% vs MA\n"
+                                        f"💡 **Gợi ý: Volume cao bất thường so với cùng giờ - có thể có tin tức!**"
+                                    )
+                                    print(f"    📊 VOLUME SPIKE: {symbol} - Z-score: {z_score:.2f} (Volume: {vol:,.0f})")
+                                
+                                elif z_score < -2.0 and vol < (similar_vol_mean * 0.3):  # Very low volume
+                                    any_alert = True
+                                    alerts.append(
+                                        f"📉 **VOLUME DROP - {symbol}**\n"
+                                        f"💰 Giá: {price:.2f}\n"
+                                        f"📉 Volume: {vol:,.0f} (Z-score: {z_score:.2f})\n"
+                                        f"📊 Similar Time Avg: {similar_vol_mean:,.0f}\n"
+                                        f"📉 Change: {vol_change_pct:.1f}% vs MA\n"
+                                        f"⚠️ **Gợi ý: Volume cực thấp so với cùng giờ - có thể có áp lực bán!**"
+                                    )
+                                    print(f"    📉 VOLUME DROP: {symbol} - Z-score: {z_score:.2f} (Volume: {vol:,.0f})")
+                                
+                                else:
+                                    print(f"    ➡️ {symbol}: Normal volume for this time (Z-score: {z_score:.2f})")
+                            else:
+                                print(f"    ❓ {symbol}: No similar time volume data")
+                        else:
+                            print(f"    ❓ {symbol}: Insufficient similar time data ({len(similar_time_data)} slots)")
+                    else:
+                        print(f"    ❓ {symbol}: No intraday data available")
+                        
+                except Exception as e:
+                    print(f"    ❌ Error in smart volume analysis: {e}")
+                    # Fallback to simple percentage comparison with more reasonable thresholds
+                    if vol_change_pct > 100:  # Volume doubled
+                        any_alert = True
+                        alerts.append(
+                            f"📊 **VOLUME SPIKE - {symbol}**\n"
+                            f"💰 Giá: {price:.2f}\n"
+                            f"📈 Volume: {vol:,.0f} (+{vol_change_pct:.1f}% vs MA)\n"
+                            f"📊 MA Volume: {vol_ma:,.0f}\n"
+                            f"💡 **Gợi ý: Volume tăng mạnh - có thể có tin tức quan trọng!**"
+                        )
+                        print(f"    📊 VOLUME SPIKE: {symbol} - Volume: {vol:,.0f} (+{vol_change_pct:.1f}%)")
+                    elif vol_change_pct < -80:  # Volume dropped significantly
+                        any_alert = True
+                        alerts.append(
+                            f"📉 **VOLUME DROP - {symbol}**\n"
+                            f"💰 Giá: {price:.2f}\n"
+                            f"📉 Volume: {vol:,.0f} ({vol_change_pct:.1f}% vs MA)\n"
+                            f"📊 MA Volume: {vol_ma:,.0f}\n"
+                            f"⚠️ **Gợi ý: Volume giảm mạnh - có thể có áp lực bán!**"
+                        )
+                        print(f"    📉 VOLUME DROP: {symbol} - Volume: {vol:,.0f} ({vol_change_pct:.1f}%)")
+                    else:
+                        print(f"    ➡️ {symbol}: Normal volume (Change: {vol_change_pct:+.1f}%)")
+                        
+            else:
+                print(f"    ❓ {symbol}: No volume data available for anomaly check")
+        
+        # Send alerts if any
+        if any_alert:
+            # Create alert message
+            alert_lines = [f"🚨 **SMART ALERTS - {current_time.strftime('%H:%M:%S')}**\n"]
+            alert_lines.extend(alerts)
+            alert_lines.append(f"\n🔄 Smart Tracking #{current_count} | Next: 15s")
+            
+            message_text = "\n".join(alert_lines)
+            await ctx.application.bot.send_message(
+                chat_id=chat_id,
+                text=message_text,
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            print(f"🚨 Smart alerts sent to user {user_id} - {len(alerts)} alerts triggered")
+        else:
+            # Just log that we checked but no alerts
+            print(f"✅ Smart track check #{current_count} - No alerts for user {user_id} (monitoring {len(positions)} positions)")
+        
+    except Exception as e:
+        print(f"❌ Error in smart_track_15s_callback: {e}")
+        # Try to send error message to user
+        try:
+            job = ctx.job
+            user_id = job.data.get('user_id')
+            chat_id = job.data.get('chat_id')
+            if user_id and chat_id:
+                await ctx.application.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"❌ Lỗi trong smart tracking: {str(e)}"
+                )
+        except Exception as e2:
+            print(f"❌ Error sending error message: {e2}")
 
 
 async def debug_pnl_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3126,6 +4071,7 @@ def main() -> None:
     )
 
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("test_notification", test_notification))
     application.add_handler(CommandHandler("help", help_cmd))
     application.add_handler(CommandHandler("add", add_cmd))
     application.add_handler(CommandHandler("sell", sell_cmd))
@@ -3155,6 +4101,14 @@ def main() -> None:
     application.add_handler(CommandHandler("market_report", market_report_cmd))
     application.add_handler(CommandHandler("market_report_schedule", market_report_schedule_cmd))
     application.add_handler(CommandHandler("market_report_off", market_report_off_cmd))
+    application.add_handler(CommandHandler("test_notification", test_notification_cmd))
+    application.add_handler(CommandHandler("test_15s", test_15s_cmd))
+    application.add_handler(CommandHandler("test_15s_stop", test_15s_stop_cmd))
+    application.add_handler(CommandHandler("test_job_status", test_job_status_cmd))
+    application.add_handler(CommandHandler("track_15s", track_15s_cmd))
+    application.add_handler(CommandHandler("track_15s_stop", track_15s_stop_cmd))
+    application.add_handler(CommandHandler("smart_track", smart_track_cmd))
+    application.add_handler(CommandHandler("smart_track_stop", smart_track_stop_cmd))
 
     # Add simple retry on startup timeout
     try:
