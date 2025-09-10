@@ -49,6 +49,15 @@ Sử dụng hệ thống 4 AI Agents để thực hiện những công việc sa
 - 📊 **Sector Analysis**: Phân tích theo ngành chi tiết
 - 🔍 **Stock Comparison**: So sánh multiple cổ phiếu
 
+### Tính năng Telegram Bot & Watchlist (v0.9.1)
+- 🤖 **Telegram Portfolio Bot**: Bot Telegram hoàn chỉnh cho quản lý danh mục
+- 📝 **Smart Watchlist**: Danh sách theo dõi cổ phiếu tiềm năng với gợi ý mua thông minh
+- 🎯 **Auto Buy Signals**: Tự động phát hiện tín hiệu mua dựa trên giá mục tiêu, volume, kỹ thuật
+- 📊 **Real-time Tracking**: Theo dõi real-time cả portfolio và watchlist
+- 🔄 **Auto Portfolio Transfer**: Tự động chuyển từ watchlist sang portfolio khi mua
+- 📈 **Advanced Alerts**: Thông báo thông minh với độ tin cậy và phân tích chi tiết
+- ⚙️ **Flexible Configuration**: Cấu hình linh hoạt cho stoploss, trailing stop, phong cách đầu tư
+
 ### Webdemo
 - Update sau
 
@@ -244,6 +253,46 @@ TELEGRAM_PORTFOLIO_DB=
 # Use the following command to run the program
 crewai run
 ```
+
+### Telegram Bot & Watchlist Usage
+
+#### Khởi động Telegram Bot
+```bash
+# Chạy bot Telegram với phân tích thị trường
+python telegram_portfolio_bot.py
+
+# Hoặc sử dụng script có sẵn
+./run_telegram_bot_with_market_analysis.sh
+```
+
+#### Các lệnh Watchlist chính
+```bash
+# Thêm cổ phiếu vào danh sách theo dõi
+/watch_add VIC 50000 Cổ phiếu tiềm năng
+
+# Xem danh sách theo dõi
+/watch_list
+
+# Xóa cổ phiếu khỏi danh sách
+/watch_remove VIC
+
+# Xóa toàn bộ danh sách
+/watch_clear
+```
+
+#### Tính năng Watchlist
+- 📝 **Theo dõi cổ phiếu tiềm năng**: Thêm cổ phiếu chưa mua vào danh sách theo dõi
+- 🎯 **Gợi ý mua thông minh**: Bot tự động phân tích và gợi ý mua khi có tín hiệu tốt
+- 📊 **Tích hợp tracking**: Watchlist được phân tích cùng với portfolio trong mỗi lần tracking
+- 🔄 **Tự động chuyển đổi**: Khi mua cổ phiếu, nó tự động chuyển từ watchlist sang portfolio
+
+#### Các tín hiệu mua được phát hiện
+- 🎯 **Đạt giá mục tiêu**: Giá hiện tại trong vòng 2% của giá mục tiêu
+- 📈 **Volume tăng mạnh**: Volume > 150% volume trung bình
+- 🔮 **Tín hiệu kỹ thuật**: Sử dụng PredictionEngine để phân tích
+- 📈 **Momentum tích cực**: Tăng giá > 2% trong 2 ngày gần nhất
+
+Chi tiết hướng dẫn sử dụng: [WATCHLIST_GUIDE.md](WATCHLIST_GUIDE.md)
 
 ### Requirements
 - Python >= 3.10, < 3.13

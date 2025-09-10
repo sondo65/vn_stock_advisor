@@ -980,6 +980,17 @@ CREATE_TABLES_SQL = [
         FOREIGN KEY(user_id) REFERENCES users(user_id)
     );
     """,
+    """
+    CREATE TABLE IF NOT EXISTS watchlist (
+        user_id INTEGER NOT NULL,
+        symbol TEXT NOT NULL,
+        target_price REAL,
+        notes TEXT,
+        added_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, symbol),
+        FOREIGN KEY(user_id) REFERENCES users(user_id)
+    );
+    """,
 ]
 
 
@@ -1219,6 +1230,72 @@ async def get_all_trailing_stops(user_id: int) -> Dict[str, Dict[str, Any]]:
                     'last_updated': row[5]
                 }
             return result
+
+
+# Watchlist management functions
+async def add_to_watchlist(user_id: int, symbol: str, target_price: Optional[float] = None, notes: Optional[str] = None) -> bool:
+    """Add a symbol to user's watchlist."""
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO watchlist (user_id, symbol, target_price, notes, added_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, symbol.upper(), target_price, notes, now)
+            )
+            await db.commit()
+            return True
+    except Exception as e:
+        print(f"Error adding to watchlist: {e}")
+        return False
+
+
+async def remove_from_watchlist(user_id: int, symbol: str) -> bool:
+    """Remove a symbol from user's watchlist."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "DELETE FROM watchlist WHERE user_id = ? AND symbol = ?",
+                (user_id, symbol.upper())
+            )
+            await db.commit()
+            return True
+    except Exception as e:
+        print(f"Error removing from watchlist: {e}")
+        return False
+
+
+async def get_watchlist(user_id: int) -> List[Tuple[str, Optional[float], Optional[str], str]]:
+    """Get user's watchlist with symbol, target_price, notes, added_at."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT symbol, target_price, notes, added_at FROM watchlist WHERE user_id = ? ORDER BY added_at DESC",
+            (user_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+            return [(row[0], row[1], row[2], row[3]) for row in rows]
+
+
+async def is_in_watchlist(user_id: int, symbol: str) -> bool:
+    """Check if symbol is in user's watchlist."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT 1 FROM watchlist WHERE user_id = ? AND symbol = ?",
+            (user_id, symbol.upper())
+        ) as cur:
+            row = await cur.fetchone()
+            return row is not None
+
+
+async def clear_watchlist(user_id: int) -> bool:
+    """Clear user's entire watchlist."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("DELETE FROM watchlist WHERE user_id = ?", (user_id,))
+            await db.commit()
+            return True
+    except Exception as e:
+        print(f"Error clearing watchlist: {e}")
+        return False
 
 
 async def get_price_and_volume(symbol: str, vol_ma_days: int) -> tuple[Optional[float], Optional[float], Optional[float]]:
@@ -1461,18 +1538,17 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ]
         
-        # Add only significant changes in compact format
+        # Add all positions in compact format
         for symbol, qty, avg_cost in positions:
             price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days)
             if price is not None:
                 pnl = (price - avg_cost) * qty
                 pnl_pct = ((price - avg_cost) / avg_cost) * 100
                 
-                # Only show if PnL changed significantly (>0.5%)
-                if abs(pnl_pct) > 0.5:
-                    pnl_emoji = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
-                    price_indicator = "📈" if pnl > 0 else "📉" if pnl < 0 else "➡️"
-                    compact_lines.append(f"{price_indicator} **{symbol}**: {price:.2f} {pnl_emoji} {pnl:+.0f} ({pnl_pct:+.1f}%)")
+                # Show all positions in compact format
+                pnl_emoji = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
+                price_indicator = "📈" if pnl > 0 else "📉" if pnl < 0 else "➡️"
+                compact_lines.append(f"{price_indicator} **{symbol}**: {price:.2f} {pnl_emoji} {pnl:+.0f} ({pnl_pct:+.1f}%)")
         
         # Add total PnL
         if any_price_available and total_cost > 0:
@@ -1483,8 +1559,8 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
                 f"💰 **Tổng PnL**: {summary_emoji} {total_pnl:+.0f} ({total_pnl_pct:+.1f}%)"
             ])
         
-        # Only send if there are significant changes
-        if len(compact_lines) > 3:  # More than just header and separator
+        # Send if there are positions to show
+        if len(compact_lines) > 2:  # More than just header and separator
             try:
                 print(f"🔍 Sending compact portfolio update to user {user_id}")
                 await app.bot.send_message(chat_id=chat_id, text="\n".join(compact_lines))
@@ -1502,6 +1578,124 @@ async def check_positions_and_alert(app: Application, user_id: int, chat_id: str
         except Exception as e:
             print(f"❌ Failed to send detailed portfolio status to user {user_id}: {e}")
             print(f"🔍 Chat ID type: {type(chat_id)}, value: {chat_id}")
+    
+    # Check watchlist for buy signals
+    await check_watchlist_and_alert(app, user_id, chat_id, vol_ma_days)
+
+
+async def check_watchlist_and_alert(app: Application, user_id: int, chat_id: str, vol_ma_days: int) -> None:
+    """Check watchlist for potential buy signals."""
+    try:
+        watchlist = await get_watchlist(user_id)
+        if not watchlist:
+            return
+        
+        print(f"Checking {len(watchlist)} watchlist items for user {user_id}")
+        
+        alerts = []
+        any_alert = False
+        
+        for symbol, target_price, notes, added_at in watchlist:
+            try:
+                # Get current price and volume
+                price, vol, vol_ma = await get_price_and_volume(symbol, vol_ma_days)
+                
+                if price is None:
+                    print(f"    ❓ {symbol}: No price data available")
+                    continue
+                
+                print(f"    📊 {symbol}: Price={price:.2f}, Volume={vol:,.0f if vol else 'N/A'}")
+                
+                # Check for buy signals
+                buy_signals = []
+                confidence = 0.0
+                
+                # 1. Target price reached
+                if target_price and price <= target_price * 1.02:  # Within 2% of target
+                    buy_signals.append(f"🎯 Đạt giá mục tiêu ({target_price:,.0f})")
+                    confidence += 0.3
+                
+                # 2. Volume spike (if volume data available)
+                if vol and vol_ma and vol > vol_ma * 1.5:
+                    buy_signals.append(f"📈 Volume tăng mạnh (+{((vol/vol_ma-1)*100):.1f}%)")
+                    confidence += 0.2
+                
+                # 3. Technical analysis using prediction engine
+                try:
+                    prediction = await PredictionEngine.predict(symbol, InvestmentStyle.MEDIUM_TERM)
+                    
+                    if prediction.decision == PredictionDecision.BUY_MORE:
+                        buy_signals.append(f"🔮 Tín hiệu kỹ thuật: {prediction.rationale or 'Mua thêm'}")
+                        confidence += prediction.confidence * 0.3
+                    elif prediction.decision == PredictionDecision.HOLD and prediction.confidence > 0.7:
+                        buy_signals.append(f"📊 Tín hiệu tích cực: {prediction.rationale or 'Giữ vị thế'}")
+                        confidence += prediction.confidence * 0.1
+                        
+                except Exception as e:
+                    print(f"    ⚠️ {symbol}: Prediction error: {e}")
+                
+                # 4. Price momentum (simple check)
+                try:
+                    from vnstock import Quote
+                    quote = Quote(source='VCI', symbol=symbol)
+                    today = datetime.now().date()
+                    start_date = (today - timedelta(days=5)).strftime("%Y-%m-%d")
+                    end_date = today.strftime("%Y-%m-%d")
+                    
+                    df = quote.history(start=start_date, end=end_date, interval="1D")
+                    if df is not None and len(df) >= 2:
+                        recent_prices = df['close'].tail(2).values
+                        if len(recent_prices) == 2:
+                            price_change = (recent_prices[1] - recent_prices[0]) / recent_prices[0]
+                            if price_change > 0.02:  # 2% increase
+                                buy_signals.append(f"📈 Tăng giá gần đây (+{price_change*100:.1f}%)")
+                                confidence += 0.1
+                except Exception as e:
+                    print(f"    ⚠️ {symbol}: Momentum check error: {e}")
+                
+                # Generate alert if confidence is high enough
+                if confidence >= 0.4 and buy_signals:  # Minimum 40% confidence
+                    any_alert = True
+                    alert_text = f"🚀 **GỢI Ý MUA - {symbol}**\n"
+                    alert_text += f"💰 Giá hiện tại: {price:,.0f}\n"
+                    
+                    if target_price:
+                        discount_pct = ((target_price - price) / target_price) * 100
+                        alert_text += f"🎯 Giá mục tiêu: {target_price:,.0f} (Giảm {discount_pct:.1f}%)\n"
+                    
+                    alert_text += f"📊 Độ tin cậy: {confidence*100:.0f}%\n\n"
+                    alert_text += "🔍 **Tín hiệu:**\n"
+                    for signal in buy_signals:
+                        alert_text += f"• {signal}\n"
+                    
+                    if notes:
+                        alert_text += f"\n📝 Ghi chú: {notes}"
+                    
+                    alert_text += f"\n\n💡 Dùng `/add {symbol} <số_lượng> <giá>` để mua"
+                    alerts.append(alert_text)
+                    
+                    print(f"    🚀 BUY SIGNAL: {symbol} - Confidence: {confidence*100:.0f}%")
+                
+            except Exception as e:
+                print(f"    ❌ Error analyzing {symbol}: {e}")
+        
+        # Send alerts if any
+        if any_alert and alerts:
+            try:
+                alert_message = "📝 **Danh sách theo dõi - Tín hiệu mua**\n"
+                alert_message += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                alert_message += "\n\n".join(alerts)
+                
+                print(f"🔍 Sending watchlist alerts to user {user_id}")
+                await app.bot.send_message(chat_id=chat_id, text=alert_message)
+                print(f"✅ Sent watchlist alerts to user {user_id}")
+            except Exception as e:
+                print(f"❌ Failed to send watchlist alerts to user {user_id}: {e}")
+        else:
+            print(f"📊 No watchlist alerts for user {user_id}")
+            
+    except Exception as e:
+        print(f"❌ Error in watchlist analysis: {e}")
 
 
 async def summarize_eod_and_outlook(app: Application, user_id: int, chat_id: str) -> None:
@@ -2204,6 +2398,13 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/set_style <mã> <SHORT_TERM|MEDIUM_TERM|LONG_TERM> — đặt phong cách đầu tư cho cổ phiếu\n"
         "/my_style — xem phong cách đầu tư cho tất cả cổ phiếu\n"
         "\n"
+        "📝 Danh sách theo dõi (Watchlist):\n"
+        "/watch_add <mã> [giá_mục_tiêu] [ghi_chú] — thêm cổ phiếu vào danh sách theo dõi\n"
+        "/watch_remove <mã> — xóa cổ phiếu khỏi danh sách theo dõi\n"
+        "/watch_list — xem danh sách theo dõi\n"
+        "/watch_clear — xóa toàn bộ danh sách theo dõi\n"
+        "💡 Bot sẽ phân tích và gợi ý mua khi có tín hiệu tốt\n"
+        "\n"
         "⚙️ Quản lý:\n"
         "/reset — xóa toàn bộ dữ liệu danh mục (cần xác nhận)\n"
         "/confirm_reset — xác nhận xóa dữ liệu\n"
@@ -2290,10 +2491,20 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Tự động set stoploss cho cổ phiếu này
     await set_stock_stoploss(user_id, symbol, stoploss_pct)
     
-    await update.message.reply_text(
-        f"✅ Đã mua {qty:g} {symbol} giá {price:.2f}.\n"
-        f"📊 Stoploss đã được đặt: {stoploss_pct*100:.0f}% (giá: {price*(1-stoploss_pct):.2f})"
-    )
+    # Check if symbol was in watchlist and remove it
+    was_in_watchlist = await is_in_watchlist(user_id, symbol)
+    if was_in_watchlist:
+        await remove_from_watchlist(user_id, symbol)
+        print(f"✅ Removed {symbol} from watchlist after purchase")
+    
+    # Prepare response message
+    response_msg = f"✅ Đã mua {qty:g} {symbol} giá {price:.2f}.\n"
+    response_msg += f"📊 Stoploss đã được đặt: {stoploss_pct*100:.0f}% (giá: {price*(1-stoploss_pct):.2f})"
+    
+    if was_in_watchlist:
+        response_msg += f"\n📝 Đã xóa {symbol} khỏi danh sách theo dõi (đã mua)"
+    
+    await update.message.reply_text(response_msg)
     
     # Tự động đặt phong cách đầu tư mặc định nếu chưa có
     current_style = await get_stock_investment_style(user_id, symbol)
@@ -2600,6 +2811,162 @@ async def my_style_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     lines.append("• LONG_TERM - 6+ tháng, value investing")
     
     await update.message.reply_text("\n".join(lines))
+
+
+# Watchlist commands
+async def watch_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Thêm cổ phiếu vào danh sách theo dõi"""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    if not context.args:
+        await update.message.reply_text(
+            "📝 **Thêm cổ phiếu vào danh sách theo dõi**\n\n"
+            "Cú pháp: `/watch_add <mã_cổ_phiếu> [giá_mục_tiêu] [ghi_chú]`\n\n"
+            "Ví dụ:\n"
+            "• `/watch_add VIC` - Theo dõi VIC\n"
+            "• `/watch_add VIC 50000` - Theo dõi VIC với giá mục tiêu 50,000\n"
+            "• `/watch_add VIC 50000 Cổ phiếu tiềm năng` - Thêm ghi chú\n\n"
+            "💡 Cổ phiếu trong danh sách theo dõi sẽ được phân tích và gợi ý mua khi có tín hiệu tốt."
+        )
+        return
+    
+    symbol = context.args[0].upper()
+    target_price = None
+    notes = None
+    
+    # Parse target price if provided
+    if len(context.args) > 1:
+        try:
+            target_price = float(context.args[1])
+        except ValueError:
+            # If second arg is not a number, treat it as notes
+            notes = " ".join(context.args[1:])
+    
+    # Parse notes if target price was provided
+    if len(context.args) > 2 and target_price is not None:
+        notes = " ".join(context.args[2:])
+    
+    # Check if already in portfolio
+    positions = await get_positions(user_id)
+    if any(pos[0] == symbol for pos in positions):
+        await update.message.reply_text(f"❌ {symbol} đã có trong danh mục. Dùng /add để thêm số lượng.")
+        return
+    
+    # Add to watchlist
+    success = await add_to_watchlist(user_id, symbol, target_price, notes)
+    
+    if success:
+        msg = f"✅ Đã thêm {symbol} vào danh sách theo dõi"
+        if target_price:
+            msg += f"\n💰 Giá mục tiêu: {target_price:,.0f}"
+        if notes:
+            msg += f"\n📝 Ghi chú: {notes}"
+        msg += "\n\n💡 Bot sẽ phân tích và gợi ý mua khi có tín hiệu tốt."
+        await update.message.reply_text(msg)
+    else:
+        await update.message.reply_text(f"❌ Lỗi khi thêm {symbol} vào danh sách theo dõi.")
+
+
+async def watch_remove_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Xóa cổ phiếu khỏi danh sách theo dõi"""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    if not context.args:
+        await update.message.reply_text(
+            "🗑️ **Xóa cổ phiếu khỏi danh sách theo dõi**\n\n"
+            "Cú pháp: `/watch_remove <mã_cổ_phiếu>`\n\n"
+            "Ví dụ: `/watch_remove VIC`"
+        )
+        return
+    
+    symbol = context.args[0].upper()
+    
+    # Check if in watchlist
+    if not await is_in_watchlist(user_id, symbol):
+        await update.message.reply_text(f"❌ {symbol} không có trong danh sách theo dõi.")
+        return
+    
+    # Remove from watchlist
+    success = await remove_from_watchlist(user_id, symbol)
+    
+    if success:
+        await update.message.reply_text(f"✅ Đã xóa {symbol} khỏi danh sách theo dõi.")
+    else:
+        await update.message.reply_text(f"❌ Lỗi khi xóa {symbol} khỏi danh sách theo dõi.")
+
+
+async def watch_list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Hiển thị danh sách theo dõi"""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    watchlist = await get_watchlist(user_id)
+    
+    if not watchlist:
+        await update.message.reply_text(
+            "📝 **Danh sách theo dõi trống**\n\n"
+            "Dùng `/watch_add <mã_cổ_phiếu>` để thêm cổ phiếu vào danh sách theo dõi.\n"
+            "Bot sẽ phân tích và gợi ý mua khi có tín hiệu tốt."
+        )
+        return
+    
+    lines = ["📝 **Danh sách theo dõi:**\n"]
+    
+    for i, (symbol, target_price, notes, added_at) in enumerate(watchlist, 1):
+        lines.append(f"**{i}. {symbol}**")
+        if target_price:
+            lines.append(f"   💰 Giá mục tiêu: {target_price:,.0f}")
+        if notes:
+            lines.append(f"   📝 Ghi chú: {notes}")
+        
+        # Format added date
+        try:
+            added_date = datetime.fromisoformat(added_at.replace('Z', '+00:00'))
+            added_date_str = added_date.strftime("%d/%m/%Y %H:%M")
+            lines.append(f"   📅 Thêm lúc: {added_date_str}")
+        except:
+            lines.append(f"   📅 Thêm lúc: {added_at}")
+        
+        lines.append("")  # Empty line between items
+    
+    lines.append("💡 Dùng `/watch_remove <mã>` để xóa khỏi danh sách.")
+    
+    await update.message.reply_text("\n".join(lines))
+
+
+async def watch_clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Xóa toàn bộ danh sách theo dõi"""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    watchlist = await get_watchlist(user_id)
+    
+    if not watchlist:
+        await update.message.reply_text("📝 Danh sách theo dõi đã trống.")
+        return
+    
+    # Show confirmation
+    await update.message.reply_text(
+        f"⚠️ **Xác nhận xóa toàn bộ danh sách theo dõi**\n\n"
+        f"Bạn có {len(watchlist)} cổ phiếu trong danh sách theo dõi:\n"
+        f"{', '.join([item[0] for item in watchlist])}\n\n"
+        f"Gõ `/confirm_watch_clear` để xác nhận xóa toàn bộ danh sách."
+    )
+
+
+async def confirm_watch_clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Xác nhận xóa toàn bộ danh sách theo dõi"""
+    assert update.effective_user is not None
+    user_id = update.effective_user.id
+    
+    success = await clear_watchlist(user_id)
+    
+    if success:
+        await update.message.reply_text("✅ Đã xóa toàn bộ danh sách theo dõi.")
+    else:
+        await update.message.reply_text("❌ Lỗi khi xóa danh sách theo dõi.")
 
 
 # (Deprecated) set_schedule_cmd removed; use /track_on or /track_off instead
@@ -4191,6 +4558,13 @@ def main() -> None:
     application.add_handler(CommandHandler("track_15s_stop", track_15s_stop_cmd))
     application.add_handler(CommandHandler("smart_track", smart_track_cmd))
     application.add_handler(CommandHandler("smart_track_stop", smart_track_stop_cmd))
+    
+    # Watchlist commands
+    application.add_handler(CommandHandler("watch_add", watch_add_cmd))
+    application.add_handler(CommandHandler("watch_remove", watch_remove_cmd))
+    application.add_handler(CommandHandler("watch_list", watch_list_cmd))
+    application.add_handler(CommandHandler("watch_clear", watch_clear_cmd))
+    application.add_handler(CommandHandler("confirm_watch_clear", confirm_watch_clear_cmd))
 
     # Add simple retry on startup timeout
     try:
