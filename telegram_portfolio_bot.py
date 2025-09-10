@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, time, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -325,6 +326,710 @@ class TechnicalIndicators:
             atr_values[i] = sum(true_ranges[i-period:i]) / period
         
         return atr_values
+
+
+class IntrinsicValueCalculator:
+    """Tính toán giá trị nội tại (intrinsic value) của cổ phiếu VN."""
+    
+    # Tham số mặc định cho thị trường VN
+    DEFAULT_DISCOUNT_RATE = 0.12  # 12% cho VN
+    DEFAULT_GROWTH_RATE = 0.08    # 8% tăng trưởng dài hạn
+    DEFAULT_TERMINAL_GROWTH = 0.03  # 3% tăng trưởng terminal
+    DEFAULT_PE_RATIO = 15.0       # P/E trung bình cho VN
+    DEFAULT_BOND_YIELD = 0.05     # 5% lãi suất trái phiếu VN
+    
+    @staticmethod
+    async def get_financial_data(symbol: str) -> Optional[Dict[str, Any]]:
+        """Lấy dữ liệu tài chính từ vnstock API (Vnstock().stock) - không dùng mock.
+
+        Trả về dict gồm: eps (VND), book_value_per_share (VND), fcf (VND/cổ phiếu),
+        roe (0-1), shares_outstanding (cổ phiếu), avg_growth_rate (0-1),
+        net_income (VND), total_equity (VND), current_price (VND).
+        """
+        try:
+            import vnstock as vs
+            from datetime import date, timedelta
+            import pandas as pd
+
+            # Thử các nguồn theo thứ tự: VCI -> TCBS -> MSN
+            sources_to_try = ['VCI', 'TCBS', 'MSN']
+            last_error: Optional[Exception] = None
+
+            stock = None
+            income = balance = cashflow = ratio = None
+            current_price = 0.0
+
+            for src in sources_to_try:
+                try:
+                    stock = vs.Vnstock().stock(symbol=symbol, source=src)
+
+                    # Giá hiện tại: ưu tiên intraday, fallback history close gần nhất
+                    current_price = 0.0
+                    try:
+                        intr = stock.quote.intraday()
+                        if intr is not None and not intr.empty and 'price' in intr.columns:
+                            current_price = float(intr['price'].iloc[-1])
+                    except Exception as e:
+                        last_error = e
+                    if not current_price:
+                        try:
+                            today = date.today()
+                            start = (today - timedelta(days=365)).strftime('%Y-%m-%d')
+                            end = today.strftime('%Y-%m-%d')
+                            hist = stock.quote.history(start=start, end=end, interval='1D')
+                            if hist is not None and not hist.empty and 'close' in hist.columns:
+                                current_price = float(hist['close'].dropna().iloc[-1])
+                        except Exception as e:
+                            last_error = e
+
+                    fin = stock.finance
+                    income = fin.income_statement(period='yearly')
+                    balance = fin.balance_sheet(period='yearly')
+                    cashflow = fin.cash_flow(period='yearly')
+                    ratio = fin.ratio(period='yearly')
+
+                    # Kiểm tra dữ liệu hợp lệ, nếu ok thì dừng loop
+                    if (
+                        income is not None and not income.empty and
+                        balance is not None and not balance.empty and
+                        cashflow is not None and not cashflow.empty and
+                        ratio is not None and not ratio.empty
+                    ):
+                        break
+                except Exception as e:
+                    last_error = e
+                    continue
+
+            if income is None or balance is None or cashflow is None or ratio is None:
+                return None
+            if income.empty or balance.empty or cashflow.empty or ratio.empty:
+                return None
+
+            # Lấy năm mới nhất
+            try:
+                latest_year = int(income['yearReport'].max())
+                inc_latest = income.loc[income['yearReport'] == latest_year].tail(1)
+            except Exception:
+                inc_latest = income.tail(1)
+
+            # Net income (thuộc cổ đông công ty mẹ nếu có)
+            net_income = 0.0
+            for col in ['Attributable to parent company', 'Net Profit For the Year']:
+                if col in inc_latest.columns:
+                    try:
+                        net_income = float(inc_latest[col].iloc[0])
+                        break
+                    except Exception:
+                        continue
+
+            # Total equity (tỷ đồng VND → VND)
+            try:
+                bal_latest = balance.loc[balance['yearReport'] == latest_year].tail(1)
+            except Exception:
+                bal_latest = balance.tail(1)
+            total_equity = 0.0
+            for col in ["OWNER'S EQUITY(Bn.VND)", 'Capital and reserves (Bn. VND)']:
+                if col in bal_latest.columns:
+                    try:
+                        total_equity = float(bal_latest[col].iloc[0]) * 1e9
+                        break
+                    except Exception:
+                        continue
+
+            # Shares outstanding (triệu cp → cp) & EPS/BVPS/ROE từ bảng ratio nếu có
+            shares_outstanding = 0.0
+            eps = None
+            bvps = None
+            roe = None
+            try:
+                # ratio có thể là multi-index cột
+                cols = list(ratio.columns)
+                def get_ratio(col_tuple, fallback=None):
+                    try:
+                        if isinstance(cols[0], tuple):
+                            if col_tuple in ratio.columns:
+                                return ratio[col_tuple]
+                        else:
+                            if col_tuple[1] in ratio.columns:
+                                return ratio[col_tuple[1]]
+                    except Exception:
+                        return fallback
+                    return fallback
+
+                # Lọc theo năm mới nhất nếu có
+                try:
+                    ratio_latest = ratio.loc[ratio[('Meta', 'yearReport')] == latest_year] if isinstance(cols[0], tuple) else ratio
+                    if isinstance(cols[0], tuple) and ratio_latest.empty:
+                        ratio_latest = ratio.tail(1)
+                except Exception:
+                    ratio_latest = ratio.tail(1)
+
+                out_shares_series = get_ratio(('Chỉ tiêu định giá', 'Outstanding Share (Mil. Shares)'))
+                if out_shares_series is not None is not False:
+                    try:
+                        val = float(out_shares_series.tail(1).iloc[0])
+                        shares_outstanding = val * 1e6
+                    except Exception:
+                        pass
+
+                eps_series = get_ratio(('Chỉ tiêu định giá', 'EPS (VND)'))
+                if eps_series is not None is not False:
+                    try:
+                        eps = float(eps_series.tail(1).iloc[0])
+                    except Exception:
+                        pass
+
+                bvps_series = get_ratio(('Chỉ tiêu định giá', 'BVPS (VND)'))
+                if bvps_series is not None is not False:
+                    try:
+                        bvps = float(bvps_series.tail(1).iloc[0])
+                    except Exception:
+                        pass
+
+                roe_series = get_ratio(('Chỉ tiêu khả năng sinh lợi', 'ROE (%)'))
+                if roe_series is not None is not False:
+                    try:
+                        roe = float(roe_series.tail(1).iloc[0]) / 100.0
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Nếu thiếu thì tính từ income/balance
+            if shares_outstanding <= 0 and total_equity > 0 and bvps and bvps > 0:
+                shares_outstanding = total_equity / bvps
+            if (eps is None or eps <= 0) and net_income > 0 and shares_outstanding > 0:
+                eps = net_income / shares_outstanding
+            if (bvps is None or bvps <= 0) and total_equity > 0 and shares_outstanding > 0:
+                bvps = total_equity / shares_outstanding
+            if (roe is None or roe <= 0) and total_equity > 0:
+                roe = (net_income / total_equity) if total_equity > 0 else 0.0
+
+            # Tích hợp PECalculator để tinh chỉnh EPS/price/shares nếu có
+            try:
+                if PE_CALCULATOR_AVAILABLE:
+                    pe_calc = PECalculator()
+                    pe_data = pe_calc.calculate_accurate_pe(symbol, use_diluted_eps=True)
+                    if isinstance(pe_data, dict) and 'error' not in pe_data:
+                        cp = pe_data.get('current_price')
+                        if cp and cp > 0:
+                            current_price = float(cp)
+                        so = pe_data.get('shares_outstanding')
+                        if so and so > 0:
+                            shares_outstanding = float(so)
+                        eps_used = pe_data.get('eps_used') or pe_data.get('eps_diluted') or pe_data.get('eps_basic')
+                        if eps_used and eps_used > 0:
+                            eps = float(eps_used)
+                        # Lưu source_pe để suy EPS ngầm trong bước P/E
+                        sp = pe_data.get('source_pe')
+                        if sp and sp > 0:
+                            # sẽ dùng trong calculate_pe_intrinsic_value
+                            # thêm vào financial_data sau khi return
+                            pass
+                        if (bvps is None or bvps <= 0) and total_equity > 0 and shares_outstanding > 0:
+                            bvps = total_equity / shares_outstanding
+                        # Ghi lại vào financial_data thông qua biến local, sẽ trả về bên dưới
+                        source_pe_local = float(sp) if (sp and sp > 0) else None
+                    else:
+                        source_pe_local = None
+                else:
+                    source_pe_local = None
+            except Exception:
+                source_pe_local = None
+
+            # Fallback bổ sung: suy ra số cổ phiếu từ vốn điều lệ (par 10,000 VND)
+            if (shares_outstanding is None or shares_outstanding <= 0) and balance is not None and not balance.empty:
+                try:
+                    paid_in_cols = ['Paid-in capital (Bn. VND)', 'Common shares (Bn. VND)', 'Capital and reserves (Bn. VND)']
+                    if 'yearReport' in balance.columns:
+                        bal_latest = balance.loc[balance['yearReport'] == latest_year].tail(1)
+                    for col in paid_in_cols:
+                        if col in bal_latest.columns:
+                            paid_in_vnd = float(bal_latest[col].iloc[0]) * 1e9
+                            approx_shares = paid_in_vnd / 10000.0
+                            if approx_shares > 0:
+                                shares_outstanding = approx_shares
+                                if (eps is None or eps <= 0) and net_income > 0:
+                                    eps = net_income / shares_outstanding
+                                if (bvps is None or bvps <= 0) and total_equity > 0:
+                                    bvps = total_equity / shares_outstanding
+                                break
+                except Exception:
+                    pass
+
+            # FCF = CFO - CAPEX (CFO: Net cash inflows/outflows from operating activities, CAPEX: Purchase of fixed assets)
+            try:
+                cf_latest = cashflow.loc[cashflow['yearReport'] == latest_year].tail(1)
+            except Exception:
+                cf_latest = cashflow.tail(1)
+            cfo = 0.0
+            capex = 0.0
+            # CFO column variants
+            for col in ['Net cash inflows/outflows from operating activities', 'Net Cash Flows from Operating Activities', 'Net cash flows from operating activities']:
+                if col in cf_latest.columns:
+                    try:
+                        cfo = float(cf_latest[col].iloc[0])
+                        break
+                    except Exception:
+                        continue
+            # CAPEX column variants
+            for col in ['Purchase of fixed assets', 'Payments for purchase of fixed assets']:
+                if col in cf_latest.columns:
+                    try:
+                        capex = float(cf_latest[col].iloc[0])
+                        break
+                    except Exception:
+                        continue
+            # Chuẩn FCF: CFO - CAPEX (CAPEX thường là số âm trong báo cáo; dùng giá trị tuyệt đối)
+            try:
+                capex_abs = abs(capex)
+            except Exception:
+                capex_abs = capex if capex >= 0 else 0.0
+            fcf_total = cfo - capex_abs
+
+            # Tính tăng trưởng trung bình 5 năm từ Attributable to parent company
+            avg_growth = IntrinsicValueCalculator.DEFAULT_GROWTH_RATE
+            try:
+                inc_sorted = income.sort_values('yearReport').dropna(subset=['yearReport'])
+                series = None
+                for col in ['Attributable to parent company', 'Net Profit For the Year']:
+                    if col in inc_sorted.columns:
+                        series = inc_sorted[[ 'yearReport', col ]].dropna()
+                        series = series.tail(6)  # tối đa 6 điểm để có 5 khoảng tăng trưởng
+                        break
+                if series is not None and len(series) >= 2:
+                    vals = [float(v) for v in series.iloc[:, 1].tolist() if pd.notna(v) and float(v) > 0]
+                    if len(vals) >= 2:
+                        growths = []
+                        for i in range(1, len(vals)):
+                            prev = vals[i-1]
+                            curr = vals[i]
+                            if prev > 0:
+                                growths.append((curr - prev) / prev)
+                        if growths:
+                            avg_growth = sum(growths) / len(growths)
+            except Exception:
+                pass
+
+            # Chuẩn hóa đơn vị giá: nếu giá có vẻ theo nghìn (<= 1,000), nhân 1,000
+            try:
+                if current_price > 0 and current_price <= 1000:
+                    # Heuristic: nhiều nguồn trả về giá theo nghìn VND
+                    current_price *= 1000.0
+            except Exception:
+                pass
+
+            # Chuẩn hóa output và guard giá trị âm/0 + sanity checks
+            if shares_outstanding is None or shares_outstanding < 0:
+                shares_outstanding = 0.0
+            if eps is None or eps < 0:
+                eps = 0.0
+            if bvps is None or bvps < 0:
+                bvps = 0.0
+            if roe is None or roe < 0:
+                roe = 0.0
+            if fcf_total is None:
+                fcf_total = 0.0
+            if current_price is None or current_price < 0:
+                current_price = 0.0
+
+            # Clamp growth/ROE to reasonable ranges for VN market
+            try:
+                if avg_growth is not None:
+                    # between -20% and +30%
+                    avg_growth = max(min(avg_growth, 0.30), -0.20)
+            except Exception:
+                pass
+            try:
+                if roe is not None:
+                    roe = max(min(roe, 0.40), 0.0)
+            except Exception:
+                pass
+
+            # Sanity for BVPS: if absurdly high (> 1,000,000 VND), try to re-pull from ratio; else drop BVPS
+            try:
+                if bvps and bvps > 1_000_000:
+                    cols = list(ratio.columns)
+                    def get_ratio_val(col_tuple):
+                        if isinstance(cols[0], tuple):
+                            if col_tuple in ratio.columns:
+                                s = ratio[col_tuple]
+                                return float(s.dropna().tail(1).iloc[0]) if not s.dropna().empty else None
+                        else:
+                            if col_tuple[1] in ratio.columns:
+                                s = ratio[col_tuple[1]]
+                                return float(s.dropna().tail(1).iloc[0]) if not s.dropna().empty else None
+                        return None
+                    bvps_ratio = get_ratio_val(('Chỉ tiêu định giá', 'BVPS (VND)'))
+                    if bvps_ratio and bvps_ratio < 1_000_000:
+                        bvps = bvps_ratio
+                    else:
+                        # if still absurd, disable BVPS to avoid exploding PB/Graham caps
+                        bvps = 0.0
+            except Exception:
+                pass
+
+            # Trả về
+            return {
+                'symbol': symbol,
+                'eps': float(eps) if eps is not None else 0.0,
+                'book_value_per_share': float(bvps) if bvps is not None else 0.0,
+                'fcf': float(fcf_total),
+                'roe': float(roe) if roe is not None else 0.0,
+                'shares_outstanding': float(shares_outstanding) if shares_outstanding else 0.0,
+                'avg_growth_rate': float(avg_growth) if avg_growth is not None else IntrinsicValueCalculator.DEFAULT_GROWTH_RATE,
+                'net_income': float(net_income) if net_income else 0.0,
+                'total_equity': float(total_equity) if total_equity else 0.0,
+                'current_price': float(current_price) if current_price else 0.0,
+                'source_pe': source_pe_local if 'source_pe_local' in locals() else None,
+            }
+
+        except Exception as e:
+            print(f"Error getting financial data for {symbol}: {e}")
+            return None
+    
+    @staticmethod
+    def calculate_dcf_intrinsic_value(financial_data: Dict[str, Any], 
+                                    discount_rate: float = None,
+                                    growth_rate: float = None,
+                                    terminal_growth: float = None,
+                                    years: int = 5) -> Dict[str, Any]:
+        """Tính intrinsic value bằng phương pháp DCF."""
+        if not financial_data:
+            return None
+            
+        discount_rate = discount_rate or IntrinsicValueCalculator.DEFAULT_DISCOUNT_RATE
+        growth_rate = growth_rate or financial_data.get('avg_growth_rate', IntrinsicValueCalculator.DEFAULT_GROWTH_RATE)
+        terminal_growth = terminal_growth or IntrinsicValueCalculator.DEFAULT_TERMINAL_GROWTH
+        
+        fcf = financial_data['fcf']
+        shares = financial_data['shares_outstanding']
+        fcf_per_share = fcf / shares if shares > 0 else 0
+        
+        if fcf_per_share <= 0:
+            return None
+        
+        # Dự báo FCF cho các năm
+        projected_fcf = []
+        present_values = []
+        
+        for year in range(1, years + 1):
+            projected_fcf_year = fcf_per_share * ((1 + growth_rate) ** year)
+            pv = projected_fcf_year / ((1 + discount_rate) ** year)
+            projected_fcf.append(projected_fcf_year)
+            present_values.append(pv)
+        
+        # Terminal value
+        terminal_fcf = projected_fcf[-1] * (1 + terminal_growth)
+        terminal_value = terminal_fcf / (discount_rate - terminal_growth)
+        terminal_pv = terminal_value / ((1 + discount_rate) ** years)
+        
+        # Intrinsic value
+        intrinsic_value = sum(present_values) + terminal_pv
+        
+        return {
+            'method': 'DCF',
+            'intrinsic_value': intrinsic_value,
+            'discount_rate': discount_rate,
+            'growth_rate': growth_rate,
+            'terminal_growth': terminal_growth,
+            'projected_fcf': projected_fcf,
+            'present_values': present_values,
+            'terminal_value': terminal_value,
+            'terminal_pv': terminal_pv
+        }
+    
+    @staticmethod
+    def calculate_pe_intrinsic_value(financial_data: Dict[str, Any], 
+                                   target_pe: float = None) -> Dict[str, Any]:
+        """Tính intrinsic value bằng phương pháp P/E."""
+        if not financial_data:
+            return None
+        
+        eps_val = financial_data.get('eps', 0) or 0.0
+        # Suy EPS ngầm từ price/source_pe nếu EPS nhỏ bất thường
+        price = financial_data.get('current_price', 0) or 0.0
+        source_pe = financial_data.get('source_pe')
+        eps_inferred = (price / source_pe) if (price and source_pe and source_pe > 0) else None
+        if eps_inferred and eps_inferred > 0:
+            # chỉ dùng nếu trong biên hợp lý (0.5x–3x EPS hiện)
+            if eps_val <= 0 or (0.5 * eps_val <= eps_inferred <= 3.0 * eps_val):
+                eps_val = eps_inferred
+        if eps_val <= 0:
+            return None
+        
+        target_pe = target_pe or IntrinsicValueCalculator.DEFAULT_PE_RATIO
+        
+        # Điều chỉnh theo nhóm ngành: bất động sản → 18–20
+        # Heuristic theo mã: VIC, VHM, VRE, NVL, PDR, KDH
+        symbol = financial_data.get('symbol', '')
+        if symbol in {'VIC','VHM','VRE','NVL','PDR','KDH'}:
+            target_pe = 19.0
+        
+        # Điều chỉnh P/E dựa trên ROE
+        roe = financial_data.get('roe', 0)
+        if roe > 0.15:  # ROE > 15%
+            target_pe *= 1.1
+        elif roe < 0.10:  # ROE < 10%
+            target_pe *= 0.9
+            
+        intrinsic_value = eps_val * target_pe
+        if intrinsic_value <= 0:
+            return None
+        
+        return {
+            'method': 'P/E',
+            'intrinsic_value': intrinsic_value,
+            'target_pe': target_pe,
+            'eps': eps_val,
+            'roe': roe
+        }
+    
+    @staticmethod
+    def calculate_graham_intrinsic_value(financial_data: Dict[str, Any],
+                                       bond_yield: float = None) -> Dict[str, Any]:
+        """Tính intrinsic value bằng công thức Graham."""
+        if not financial_data or financial_data.get('eps', 0) <= 0:
+            return None
+            
+        bond_yield = bond_yield or IntrinsicValueCalculator.DEFAULT_BOND_YIELD
+        eps = financial_data['eps']
+        book_value = financial_data.get('book_value_per_share', 0)
+        
+        if book_value <= 0:
+            return None
+        
+        # Công thức Graham: EPS * (8.5 + 2 * growth) * 4.4 / bond_yield
+        growth_rate = financial_data.get('avg_growth_rate', 0.08)
+        graham_value = eps * (8.5 + 2 * growth_rate) * 4.4 / bond_yield
+        
+        # Giới hạn tối đa 1.5 lần book value
+        max_value = 1.5 * book_value
+        intrinsic_value = min(graham_value, max_value)
+        if intrinsic_value <= 0:
+            return None
+        
+        return {
+            'method': 'Graham',
+            'intrinsic_value': intrinsic_value,
+            'graham_value': graham_value,
+            'max_value': max_value,
+            'eps': eps,
+            'book_value': book_value,
+            'growth_rate': growth_rate,
+            'bond_yield': bond_yield
+        }
+    
+    @staticmethod
+    def calculate_weighted_intrinsic_value(dcf_result: Dict[str, Any],
+                                         pe_result: Dict[str, Any],
+                                         graham_result: Dict[str, Any],
+                                         pb_result: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Tính intrinsic value trung bình có trọng số."""
+        results = []
+        weights = []
+        
+        if dcf_result and dcf_result.get('intrinsic_value'):
+            results.append(dcf_result['intrinsic_value'])
+            weights.append(0.40)  # DCF 40%
+            
+        if pe_result and pe_result.get('intrinsic_value'):
+            results.append(pe_result['intrinsic_value'])
+            weights.append(0.25)  # P/E 25%
+            
+        if pb_result and pb_result.get('intrinsic_value'):
+            results.append(pb_result['intrinsic_value'])
+            weights.append(0.20)  # P/B 20%
+            
+        if graham_result and graham_result.get('intrinsic_value'):
+            results.append(graham_result['intrinsic_value'])
+            weights.append(0.15)  # Graham 15%
+        
+        if not results:
+            return None
+            
+        # Chuẩn hóa weights
+        total_weight = sum(weights)
+        normalized_weights = [w / total_weight for w in weights]
+        
+        weighted_value = sum(val * weight for val, weight in zip(results, normalized_weights))
+        
+        return {
+            'method': 'Weighted Average',
+            'intrinsic_value': weighted_value,
+            'individual_values': results,
+            'weights': normalized_weights,
+            'dcf_value': dcf_result['intrinsic_value'] if dcf_result else None,
+            'pe_value': pe_result['intrinsic_value'] if pe_result else None,
+            'graham_value': graham_result['intrinsic_value'] if graham_result else None,
+            'pb_value': pb_result['intrinsic_value'] if pb_result else None
+        }
+
+    @staticmethod
+    def calculate_pb_intrinsic_value(financial_data: Dict[str, Any], target_pb: float = None) -> Dict[str, Any]:
+        """Tính intrinsic value bằng phương pháp P/B: Intrinsic = BVPS * P/B mục tiêu.
+
+        Dùng khi EPS ≤ 0 hoặc ngành tài sản nặng. Điều chỉnh P/B theo ROE.
+        """
+        bvps = financial_data.get('book_value_per_share', 0)
+        roe = financial_data.get('roe', 0)
+        if not bvps or bvps <= 0:
+            return None
+        if target_pb is None:
+            # Baseline cho VN: 1.0
+            target_pb = 1.0
+            if roe >= 0.20:
+                target_pb = 1.8
+            elif roe >= 0.15:
+                target_pb = 1.5
+            elif roe >= 0.10:
+                target_pb = 1.3
+            elif roe >= 0.05:
+                target_pb = 1.1
+            else:
+                target_pb = 0.8
+        intrinsic_value = bvps * target_pb
+        return {
+            'method': 'P/B',
+            'intrinsic_value': intrinsic_value,
+            'target_pb': target_pb,
+            'bvps': bvps,
+            'roe': roe,
+        }
+    
+    @staticmethod
+    def calculate_safety_margin(intrinsic_value: float, current_price: float) -> Dict[str, Any]:
+        """Tính biên an toàn và đưa ra khuyến nghị."""
+        if current_price <= 0:
+            return None
+            
+        discount_pct = (intrinsic_value - current_price) / intrinsic_value * 100
+        premium_pct = (current_price - intrinsic_value) / intrinsic_value * 100
+        
+        # Khuyến nghị mua với biên an toàn 20%
+        safe_buy_price = intrinsic_value * 0.8
+        
+        # Phân loại
+        if discount_pct >= 20:
+            recommendation = "STRONG BUY"
+            risk_level = "LOW"
+        elif discount_pct >= 10:
+            recommendation = "BUY"
+            risk_level = "MEDIUM"
+        elif discount_pct >= 0:
+            recommendation = "HOLD"
+            risk_level = "MEDIUM"
+        elif premium_pct <= 10:
+            recommendation = "HOLD"
+            risk_level = "HIGH"
+        else:
+            recommendation = "SELL"
+            risk_level = "HIGH"
+        
+        return {
+            'current_price': current_price,
+            'intrinsic_value': intrinsic_value,
+            'discount_pct': discount_pct,
+            'premium_pct': premium_pct,
+            'safe_buy_price': safe_buy_price,
+            'recommendation': recommendation,
+            'risk_level': risk_level,
+            'is_undervalued': discount_pct > 0,
+            'is_overvalued': premium_pct > 0
+        }
+    
+    @staticmethod
+    def generate_sensitivity_analysis(financial_data: Dict[str, Any],
+                                    base_intrinsic: float,
+                                    discount_rates: List[float] = None,
+                                    growth_rates: List[float] = None) -> Dict[str, Any]:
+        """Tạo phân tích độ nhạy cảm."""
+        if not financial_data:
+            return None
+            
+        discount_rates = discount_rates or [0.10, 0.11, 0.12, 0.13, 0.14]
+        growth_rates = growth_rates or [0.06, 0.07, 0.08, 0.09, 0.10]
+        
+        sensitivity_matrix = []
+        
+        for dr in discount_rates:
+            row = []
+            for gr in growth_rates:
+                dcf_result = IntrinsicValueCalculator.calculate_dcf_intrinsic_value(
+                    financial_data, discount_rate=dr, growth_rate=gr
+                )
+                intrinsic = dcf_result['intrinsic_value'] if dcf_result else 0
+                row.append(intrinsic)
+            sensitivity_matrix.append(row)
+        
+        return {
+            'discount_rates': discount_rates,
+            'growth_rates': growth_rates,
+            'sensitivity_matrix': sensitivity_matrix,
+            'base_intrinsic': base_intrinsic
+        }
+    
+    @staticmethod
+    def create_sensitivity_chart(sensitivity_data: Dict[str, Any], symbol: str) -> Optional[str]:
+        """Tạo biểu đồ sensitivity analysis và lưu thành file."""
+        try:
+            import matplotlib.pyplot as plt
+            import numpy as np
+            from matplotlib import font_manager
+            
+            # Set up Vietnamese font support
+            plt.rcParams['font.family'] = 'DejaVu Sans'
+            plt.rcParams['axes.unicode_minus'] = False
+            
+            discount_rates = sensitivity_data['discount_rates']
+            growth_rates = sensitivity_data['growth_rates']
+            matrix = np.array(sensitivity_data['sensitivity_matrix'])
+            
+            # Create figure and axis
+            fig, ax = plt.subplots(figsize=(10, 8))
+            
+            # Create heatmap
+            im = ax.imshow(matrix, cmap='RdYlGn', aspect='auto')
+            
+            # Set ticks and labels
+            ax.set_xticks(range(len(growth_rates)))
+            ax.set_yticks(range(len(discount_rates)))
+            ax.set_xticklabels([f'{gr:.0%}' for gr in growth_rates])
+            ax.set_yticklabels([f'{dr:.0%}' for dr in discount_rates])
+            
+            # Add colorbar
+            cbar = plt.colorbar(im, ax=ax)
+            cbar.set_label('Intrinsic Value (VND)', rotation=270, labelpad=20)
+            
+            # Add text annotations
+            for i in range(len(discount_rates)):
+                for j in range(len(growth_rates)):
+                    value = matrix[i, j]
+                    if value > 0:
+                        text = ax.text(j, i, f'{value:,.0f}', 
+                                     ha="center", va="center", color="black", fontsize=8)
+            
+            # Labels and title
+            ax.set_xlabel('Growth Rate')
+            ax.set_ylabel('Discount Rate')
+            ax.set_title(f'Sensitivity Analysis - {symbol}\nIntrinsic Value by DCF Method')
+            
+            # Rotate x-axis labels
+            plt.xticks(rotation=45)
+            
+            # Adjust layout
+            plt.tight_layout()
+            
+            # Save to file
+            chart_path = f'/tmp/sensitivity_{symbol}_{int(time.time())}.png'
+            plt.savefig(chart_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            return chart_path
+            
+        except Exception as e:
+            print(f"Error creating sensitivity chart: {e}")
+            return None
 
 
 class PredictionEngine:
@@ -2420,6 +3125,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/pnl — thống kê lãi lỗ theo giá hiện tại\n"
         "/analyze_now — phân tích ngay và gợi ý hành động\n"
         "/predict <mã> — dự đoán giá với phân tích kỹ thuật chi tiết\n"
+        "/intrinsic_value <mã> [phương_pháp] — tính giá trị nội tại (DCF, P/E, Graham)\n"
         "\n"
         "🎯 Phong cách đầu tư (theo từng cổ phiếu):\n"
         "/set_style <mã> <SHORT_TERM|MEDIUM_TERM|LONG_TERM> — đặt phong cách đầu tư cho cổ phiếu\n"
@@ -4454,6 +5160,253 @@ async def ui_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Không thể mở UI: {e}")
 
 
+async def intrinsic_value_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Tính giá trị nội tại (intrinsic value) của cổ phiếu."""
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    
+    try:
+        # Parse arguments
+        args = context.args
+        if not args:
+            await update.message.reply_text(
+                "📊 **Tính Giá Trị Nội Tại Cổ Phiếu**\n\n"
+                "**Cú pháp:** `/intrinsic_value <mã_cổ_phiếu> [phương_pháp]`\n\n"
+                "**Phương pháp:**\n"
+                "• `DCF` - Discounted Cash Flow (mặc định)\n"
+                "• `PE` - P/E Ratio\n"
+                "• `GRAHAM` - Graham Formula\n"
+                "• `ALL` - Tất cả phương pháp\n\n"
+                "**Ví dụ:**\n"
+                "• `/intrinsic_value VIC`\n"
+                "• `/intrinsic_value VCB DCF`\n"
+                "• `/intrinsic_value FPT ALL`\n\n"
+                "⚠️ **Lưu ý:** Phân tích chỉ mang tính tham khảo, không phải lời khuyên đầu tư.",
+                parse_mode='Markdown'
+            )
+            return
+        
+        symbol = args[0].upper()
+        method = args[1].upper() if len(args) > 1 else 'DCF'
+        
+        # Validate method
+        valid_methods = ['DCF', 'PE', 'GRAHAM', 'ALL']
+        if method not in valid_methods:
+            await update.message.reply_text(
+                f"❌ Phương pháp không hợp lệ: {method}\n"
+                f"Phương pháp hợp lệ: {', '.join(valid_methods)}"
+            )
+            return
+        
+        # Send loading message
+        loading_msg = await update.message.reply_text(
+            f"🔄 Đang phân tích {symbol}...\n"
+            f"📊 Phương pháp: {method}\n"
+            f"⏳ Vui lòng chờ..."
+        )
+        
+        # Get financial data
+        financial_data = await IntrinsicValueCalculator.get_financial_data(symbol)
+        if not financial_data:
+            await loading_msg.edit_text(
+                f"❌ Không thể lấy dữ liệu tài chính cho {symbol}.\n"
+                f"Vui lòng kiểm tra mã cổ phiếu và thử lại."
+            )
+            return
+        
+        # Calculate intrinsic values based on method
+        results = {}
+        
+        if method in ['DCF', 'ALL']:
+            dcf_result = IntrinsicValueCalculator.calculate_dcf_intrinsic_value(financial_data)
+            if dcf_result:
+                results['DCF'] = dcf_result
+        
+        if method in ['PE', 'ALL']:
+            pe_result = IntrinsicValueCalculator.calculate_pe_intrinsic_value(financial_data)
+            if pe_result:
+                results['PE'] = pe_result
+        
+        if method in ['GRAHAM', 'ALL']:
+            graham_result = IntrinsicValueCalculator.calculate_graham_intrinsic_value(financial_data)
+            if graham_result:
+                results['Graham'] = graham_result
+        
+        # Always try P/B as fallback when EPS<=0 or when ALL
+        pb_result = IntrinsicValueCalculator.calculate_pb_intrinsic_value(financial_data)
+        if pb_result:
+            results['PB'] = pb_result
+        
+        if not results:
+            await loading_msg.edit_text(
+                f"❌ Không thể tính toán giá trị nội tại cho {symbol}.\n"
+                f"Dữ liệu tài chính không đủ hoặc không hợp lệ."
+            )
+            return
+        
+        # Calculate weighted average if ALL methods
+        if method == 'ALL' and len(results) > 1:
+            dcf_result = results.get('DCF')
+            pe_result = results.get('PE')
+            graham_result = results.get('Graham')
+            weighted_result = IntrinsicValueCalculator.calculate_weighted_intrinsic_value(
+                dcf_result, pe_result, graham_result, results.get('PB')
+            )
+            if weighted_result:
+                results['Weighted'] = weighted_result
+        
+        # Calculate safety margin
+        current_price = financial_data['current_price']
+        intrinsic_value = results.get('Weighted', {}).get('intrinsic_value') or list(results.values())[0]['intrinsic_value']
+        
+        safety_analysis = IntrinsicValueCalculator.calculate_safety_margin(intrinsic_value, current_price)
+        
+        # Compute explicit buy zone and upside guidance
+        buy_zone_low = intrinsic_value * 0.70
+        buy_zone_high = intrinsic_value * 0.80
+        upside_pct = ((intrinsic_value / current_price) - 1) * 100 if current_price > 0 else None
+        
+        # Fine-grained recommendation based on buy zones
+        zone_reco = None
+        if current_price > 0:
+            if current_price <= buy_zone_low:
+                zone_reco = "STRONG BUY (≤70% intrinsic)"
+            elif current_price <= buy_zone_high:
+                zone_reco = "BUY (≤80% intrinsic)"
+            elif current_price <= intrinsic_value * 0.90:
+                zone_reco = "WATCH (≤90% intrinsic)"
+            else:
+                zone_reco = "AVOID/SELL (>90% intrinsic)"
+        
+        # Generate sensitivity analysis
+        sensitivity = IntrinsicValueCalculator.generate_sensitivity_analysis(
+            financial_data, intrinsic_value
+        )
+        
+        # Create sensitivity chart if data available
+        chart_path = None
+        if sensitivity and len(sensitivity['sensitivity_matrix']) > 0:
+            chart_path = IntrinsicValueCalculator.create_sensitivity_chart(sensitivity, symbol)
+        
+        # Format response
+        response = f"📊 **Phân Tích Giá Trị Nội Tại - {symbol}**\n\n"
+        
+        # Current price and basic info
+        response += f"💰 **Giá hiện tại:** {current_price:,.0f} VND\n"
+        response += f"📈 **EPS:** {financial_data['eps']:,.0f} VND\n"
+        response += f"📚 **Book Value/Share:** {financial_data['book_value_per_share']:,.0f} VND\n"
+        response += f"💵 **ROE:** {financial_data['roe']:.1%}\n"
+        response += f"📊 **Tăng trưởng TB (5 năm):** {financial_data['avg_growth_rate']:.1%}\n\n"
+        
+        # Intrinsic values
+        response += "🎯 **Giá Trị Nội Tại:**\n"
+        for method_name, result in results.items():
+            if result:
+                response += f"• **{method_name}:** {result['intrinsic_value']:,.0f} VND\n"
+        
+        # Safety margin analysis
+        if safety_analysis:
+            response += f"\n🛡️ **Phân Tích Biên An Toàn:**\n"
+            response += f"• **Khuyến nghị:** {safety_analysis['recommendation']}\n"
+            response += f"• **Mức rủi ro:** {safety_analysis['risk_level']}\n"
+            
+            if safety_analysis['is_undervalued']:
+                response += f"• **Giảm giá:** {safety_analysis['discount_pct']:.1f}%\n"
+                response += f"• **Giá mua an toàn:** {safety_analysis['safe_buy_price']:,.0f} VND\n"
+            elif safety_analysis['is_overvalued']:
+                response += f"• **Phí bảo hiểm:** {safety_analysis['premium_pct']:.1f}%\n"
+            
+            # Add explicit buy zone guidance
+            response += f"• **Vùng mua đề xuất (MoS 20–30%)**: {buy_zone_low:,.0f} – {buy_zone_high:,.0f} VND\n"
+            if upside_pct is not None:
+                response += f"• **Upside tới Intrinsic**: {upside_pct:.1f}%\n"
+            if zone_reco:
+                response += f"• **Điểm hành động**: {zone_reco}\n"
+            
+            # Risk assessment
+            if safety_analysis['discount_pct'] >= 20:
+                response += f"✅ **Cơ hội tốt:** Cổ phiếu bị định giá thấp đáng kể\n"
+            elif safety_analysis['discount_pct'] >= 10:
+                response += f"👍 **Cơ hội:** Cổ phiếu có thể bị định giá thấp\n"
+            elif safety_analysis['premium_pct'] <= 10:
+                response += f"⚠️ **Cẩn thận:** Cổ phiếu có thể bị định giá cao\n"
+            else:
+                response += f"❌ **Rủi ro cao:** Cổ phiếu bị định giá cao\n"
+        
+        # Sensitivity analysis
+        if sensitivity and len(sensitivity['sensitivity_matrix']) > 0:
+            response += f"\n📊 **Phân Tích Độ Nhạy Cảm (DCF):**\n"
+            response += f"• **Tỷ lệ chiết khấu:** {sensitivity['discount_rates'][0]:.0%} - {sensitivity['discount_rates'][-1]:.0%}\n"
+            response += f"• **Tăng trưởng:** {sensitivity['growth_rates'][0]:.0%} - {sensitivity['growth_rates'][-1]:.0%}\n"
+            
+            # Show range of values
+            all_values = [val for row in sensitivity['sensitivity_matrix'] for val in row if val > 0]
+            if all_values:
+                min_val = min(all_values)
+                max_val = max(all_values)
+                response += f"• **Khoảng giá trị:** {min_val:,.0f} - {max_val:,.0f} VND\n"
+        
+        # Detailed method breakdown
+        if method == 'ALL' and len(results) > 1:
+            response += f"\n📋 **Chi Tiết Từng Phương Pháp:**\n"
+            
+            if 'DCF' in results:
+                dcf = results['DCF']
+                response += f"• **DCF:** {dcf['intrinsic_value']:,.0f} VND\n"
+                response += f"  - Tỷ lệ chiết khấu: {dcf['discount_rate']:.1%}\n"
+                response += f"  - Tăng trưởng: {dcf['growth_rate']:.1%}\n"
+            
+            if 'PE' in results:
+                pe = results['PE']
+                response += f"• **P/E:** {pe['intrinsic_value']:,.0f} VND\n"
+                response += f"  - P/E mục tiêu: {pe['target_pe']:.1f}\n"
+                response += f"  - ROE: {pe['roe']:.1%}\n"
+            
+            if 'Graham' in results:
+                graham = results['Graham']
+                response += f"• **Graham:** {graham['intrinsic_value']:,.0f} VND\n"
+                response += f"  - Giá trị Graham: {graham['graham_value']:,.0f} VND\n"
+                response += f"  - Giới hạn: {graham['max_value']:,.0f} VND\n"
+        
+        # Risk warnings
+        response += f"\n⚠️ **Cảnh Báo Rủi Ro:**\n"
+        response += f"• Phân tích dựa trên dữ liệu lịch sử và giả định\n"
+        response += f"• Giá trị nội tại có thể thay đổi do biến động thị trường\n"
+        response += f"• Không phải lời khuyên đầu tư chuyên nghiệp\n"
+        response += f"• Nên đa dạng hóa danh mục và quản lý rủi ro\n"
+        
+        # Data sources
+        response += f"\n📚 **Nguồn Dữ Liệu:** vnstock API, Báo cáo tài chính 5 năm gần nhất"
+        
+        # Update loading message
+        await loading_msg.edit_text(response, parse_mode='Markdown')
+        
+        # Send sensitivity chart if available
+        if chart_path and os.path.exists(chart_path):
+            try:
+                with open(chart_path, 'rb') as chart_file:
+                    await update.message.reply_photo(
+                        photo=chart_file,
+                        caption=f"📊 **Biểu Đồ Phân Tích Độ Nhạy Cảm - {symbol}**\n\n"
+                                f"Biểu đồ cho thấy giá trị nội tại thay đổi theo tỷ lệ chiết khấu và tăng trưởng.\n"
+                                f"Màu xanh: giá trị cao, Màu đỏ: giá trị thấp"
+                    )
+                # Clean up chart file
+                os.remove(chart_path)
+            except Exception as e:
+                print(f"Error sending sensitivity chart: {e}")
+                # Clean up chart file even if sending failed
+                if os.path.exists(chart_path):
+                    os.remove(chart_path)
+        
+    except Exception as e:
+        error_msg = f"❌ Lỗi tính giá trị nội tại: {str(e)}"
+        if 'loading_msg' in locals():
+            await loading_msg.edit_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
+
+
 # Callback function for daily analysis jobs
 async def daily_analysis_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Callback for daily analysis jobs - extracts user_id and chat_id from job data."""
@@ -4586,6 +5539,9 @@ def main() -> None:
     application.add_handler(CommandHandler("track_15s_stop", track_15s_stop_cmd))
     application.add_handler(CommandHandler("smart_track", smart_track_cmd))
     application.add_handler(CommandHandler("smart_track_stop", smart_track_stop_cmd))
+    
+    # Intrinsic value command
+    application.add_handler(CommandHandler("intrinsic_value", intrinsic_value_cmd))
     
     # Watchlist commands
     application.add_handler(CommandHandler("watch_add", watch_add_cmd))
