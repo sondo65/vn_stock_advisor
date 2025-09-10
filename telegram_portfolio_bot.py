@@ -3765,73 +3765,77 @@ async def smart_track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
                     current_hour = current_time.hour
                     current_minute = current_time.minute
                     
-                    # Get intraday data for the same time period comparison
+                    # Get historical data for comparison
                     today = datetime.now().date()
-                    start_date = (today - timedelta(days=10)).strftime("%Y-%m-%d")
-                    end_date = today.strftime("%Y-%m-%d")
+                    start_date = (today - timedelta(days=30)).strftime("%Y-%m-%d")
+                    end_date = (today - timedelta(days=1)).strftime("%Y-%m-%d")
                     
-                    # Get historical intraday data for comparison
-                    df_intraday = quote.intraday()
-                    if df_intraday is not None and len(df_intraday) > 0:
+                    # Get historical daily data for comparison
+                    df_history = quote.history(start=start_date, end=end_date, interval="1D")
+                    if df_history is not None and len(df_history) > 0:
                         # Convert index to datetime if it's not already
-                        if not isinstance(df_intraday.index, pd.DatetimeIndex):
-                            df_intraday.index = pd.to_datetime(df_intraday.index)
+                        if not isinstance(df_history.index, pd.DatetimeIndex):
+                            df_history.index = pd.to_datetime(df_history.index)
                         
-                        # Get current time slot data (e.g., 9:15-9:30)
-                        time_slot_start = current_hour * 60 + current_minute - 15  # 15 minutes window
-                        time_slot_end = current_hour * 60 + current_minute + 15
+                        # Calculate time-based volume adjustment factor
+                        # Early morning (9:00-10:00): lower volume expected
+                        # Mid morning (10:00-11:00): normal volume
+                        # Afternoon (13:00-15:00): higher volume expected
+                        time_factor = 1.0
+                        if current_hour == 9:  # 9:00-9:59
+                            time_factor = 0.3  # 30% of daily average
+                        elif current_hour == 10:  # 10:00-10:59
+                            time_factor = 0.6  # 60% of daily average
+                        elif current_hour == 11:  # 11:00-11:59
+                            time_factor = 0.8  # 80% of daily average
+                        elif current_hour == 13:  # 13:00-13:59
+                            time_factor = 1.2  # 120% of daily average
+                        elif current_hour == 14:  # 14:00-14:59
+                            time_factor = 1.5  # 150% of daily average
                         
-                        # Filter data for similar time slots in the past
-                        df_intraday['time_minutes'] = df_intraday.index.hour * 60 + df_intraday.index.minute
-                        similar_time_data = df_intraday[
-                            (df_intraday['time_minutes'] >= time_slot_start) & 
-                            (df_intraday['time_minutes'] <= time_slot_end)
-                        ]
-                        
-                        if len(similar_time_data) >= 5:  # Need at least 5 similar time slots
-                            similar_volumes = similar_time_data['volume'].dropna()
-                            if len(similar_volumes) > 0:
-                                similar_vol_mean = float(similar_volumes.mean())
-                                similar_vol_std = float(similar_volumes.std())
-                                
-                                # Calculate z-score based on similar time periods
-                                z_score = (vol - similar_vol_mean) / similar_vol_std if similar_vol_std > 0 else 0
-                                
-                                print(f"    📊 {symbol}: Vol={vol:,.0f}, SimilarTime_Mean={similar_vol_mean:,.0f}, Std={similar_vol_std:,.0f}, Z-score={z_score:.2f}")
-                                
-                                # More reasonable thresholds for intraday comparison
-                                if z_score > 2.0:  # Volume significantly higher than similar time periods
-                                    any_alert = True
-                                    alerts.append(
-                                        f"📊 **VOLUME SPIKE - {symbol}**\n"
-                                        f"💰 Giá: {price:.2f}\n"
-                                        f"📈 Volume: {vol:,.0f} (Z-score: {z_score:.2f})\n"
-                                        f"📊 Similar Time Avg: {similar_vol_mean:,.0f}\n"
-                                        f"📈 Change: +{vol_change_pct:.1f}% vs MA\n"
-                                        f"💡 **Gợi ý: Volume cao bất thường so với cùng giờ - có thể có tin tức!**"
-                                    )
-                                    print(f"    📊 VOLUME SPIKE: {symbol} - Z-score: {z_score:.2f} (Volume: {vol:,.0f})")
-                                
-                                elif z_score < -2.0 and vol < (similar_vol_mean * 0.3):  # Very low volume
-                                    any_alert = True
-                                    alerts.append(
-                                        f"📉 **VOLUME DROP - {symbol}**\n"
-                                        f"💰 Giá: {price:.2f}\n"
-                                        f"📉 Volume: {vol:,.0f} (Z-score: {z_score:.2f})\n"
-                                        f"📊 Similar Time Avg: {similar_vol_mean:,.0f}\n"
-                                        f"📉 Change: {vol_change_pct:.1f}% vs MA\n"
-                                        f"⚠️ **Gợi ý: Volume cực thấp so với cùng giờ - có thể có áp lực bán!**"
-                                    )
-                                    print(f"    📉 VOLUME DROP: {symbol} - Z-score: {z_score:.2f} (Volume: {vol:,.0f})")
-                                
-                                else:
-                                    print(f"    ➡️ {symbol}: Normal volume for this time (Z-score: {z_score:.2f})")
+                        # Get historical volumes and calculate expected volume for this time
+                        historical_volumes = df_history['volume'].dropna()
+                        if len(historical_volumes) > 0:
+                            daily_avg_volume = float(historical_volumes.mean())
+                            expected_volume = daily_avg_volume * time_factor
+                            
+                            # Calculate z-score based on expected volume for this time
+                            vol_std = float(historical_volumes.std())
+                            z_score = (vol - expected_volume) / vol_std if vol_std > 0 else 0
+                            
+                            print(f"    📊 {symbol}: Vol={vol:,.0f}, Expected={expected_volume:,.0f} (factor={time_factor:.1f}), Z-score={z_score:.2f}")
+                            
+                            # More reasonable thresholds for time-based comparison
+                            if z_score > 2.5:  # Volume significantly higher than expected for this time
+                                any_alert = True
+                                alerts.append(
+                                    f"📊 **VOLUME SPIKE - {symbol}**\n"
+                                    f"💰 Giá: {price:.2f}\n"
+                                    f"📈 Volume: {vol:,.0f} (Z-score: {z_score:.2f})\n"
+                                    f"📊 Expected for {current_hour:02d}:{current_minute:02d}: {expected_volume:,.0f}\n"
+                                    f"📈 Change: +{vol_change_pct:.1f}% vs MA\n"
+                                    f"💡 **Gợi ý: Volume cao bất thường so với cùng giờ - có thể có tin tức!**"
+                                )
+                                print(f"    📊 VOLUME SPIKE: {symbol} - Z-score: {z_score:.2f} (Volume: {vol:,.0f})")
+                            
+                            elif z_score < -2.0 and vol < (expected_volume * 0.5):  # Very low volume
+                                any_alert = True
+                                alerts.append(
+                                    f"📉 **VOLUME DROP - {symbol}**\n"
+                                    f"💰 Giá: {price:.2f}\n"
+                                    f"📉 Volume: {vol:,.0f} (Z-score: {z_score:.2f})\n"
+                                    f"📊 Expected for {current_hour:02d}:{current_minute:02d}: {expected_volume:,.0f}\n"
+                                    f"📉 Change: {vol_change_pct:.1f}% vs MA\n"
+                                    f"⚠️ **Gợi ý: Volume cực thấp so với cùng giờ - có thể có áp lực bán!**"
+                                )
+                                print(f"    📉 VOLUME DROP: {symbol} - Z-score: {z_score:.2f} (Volume: {vol:,.0f})")
+                            
                             else:
-                                print(f"    ❓ {symbol}: No similar time volume data")
+                                print(f"    ➡️ {symbol}: Normal volume for this time (Z-score: {z_score:.2f})")
                         else:
-                            print(f"    ❓ {symbol}: Insufficient similar time data ({len(similar_time_data)} slots)")
+                            print(f"    ❓ {symbol}: No historical volume data")
                     else:
-                        print(f"    ❓ {symbol}: No intraday data available")
+                        print(f"    ❓ {symbol}: No historical data available")
                         
                 except Exception as e:
                     print(f"    ❌ Error in smart volume analysis: {e}")
