@@ -440,7 +440,7 @@ class PredictionEngine:
         atr = TechnicalIndicators.atr(highs, lows, closes, indicators['atr_period'])
         
         # Lấy giá trị cuối cùng
-        current_price = closes[-1]
+        current_price = closes[-1] if closes[-1] is not None and closes[-1] > 0 else None
         sma_short_val = sma_short[-1] if sma_short[-1] is not None else None
         sma_medium_val = sma_medium[-1] if sma_medium[-1] is not None else None
         sma_long_val = sma_long[-1] if sma_long[-1] is not None else None
@@ -491,7 +491,7 @@ class PredictionEngine:
         atr = signals.get('atr')
         investment_style = signals.get('investment_style', 'MEDIUM_TERM')
         
-        if not current_price or not atr:
+        if not current_price or not atr or current_price <= 0 or atr <= 0:
             return {"Không đủ dữ liệu": 1.0}
         
         # Tính điểm cho từng kịch bản
@@ -677,7 +677,7 @@ class PredictionEngine:
         
         # Tạo rationale chi tiết
         rationale_parts = []
-        if rsi:
+        if rsi is not None:
             rsi_status = "Oversold" if rsi < 30 else "Overbought" if rsi > 70 else "Neutral"
             rationale_parts.append(f"RSI: {rsi:.1f} ({rsi_status})")
         
@@ -804,6 +804,31 @@ class PredictionEngine:
                                 pe_ratio = latest_ratios.get('pe', None)
                                 pb_ratio = latest_ratios.get('pb', None)
                                 roe = latest_ratios.get('roe', None)
+                                
+                                # Đảm bảo các giá trị là số hợp lệ
+                                if pe_ratio is not None:
+                                    try:
+                                        pe_ratio = float(pe_ratio)
+                                        if pe_ratio <= 0 or pe_ratio > 1000:  # P/E hợp lý
+                                            pe_ratio = None
+                                    except (ValueError, TypeError):
+                                        pe_ratio = None
+                                
+                                if pb_ratio is not None:
+                                    try:
+                                        pb_ratio = float(pb_ratio)
+                                        if pb_ratio <= 0 or pb_ratio > 100:  # P/B hợp lý
+                                            pb_ratio = None
+                                    except (ValueError, TypeError):
+                                        pb_ratio = None
+                                
+                                if roe is not None:
+                                    try:
+                                        roe = float(roe)
+                                        if roe < -100 or roe > 100:  # ROE hợp lý (%)
+                                            roe = None
+                                    except (ValueError, TypeError):
+                                        roe = None
                             except Exception:
                                 pass
                         
@@ -814,15 +839,28 @@ class PredictionEngine:
                                 accurate_pe_data = pe_calculator.calculate_accurate_pe(symbol, use_diluted_eps=True)
                                 
                                 if accurate_pe_data and "pe_ratio" in accurate_pe_data and accurate_pe_data["pe_ratio"]:
-                                    pe_ratio = accurate_pe_data["pe_ratio"]
-                                    print(f"Using accurate P/E for {symbol}: {pe_ratio}")
+                                    try:
+                                        pe_ratio = float(accurate_pe_data["pe_ratio"])
+                                        if pe_ratio <= 0 or pe_ratio > 1000:  # P/E hợp lý
+                                            pe_ratio = None
+                                        else:
+                                            print(f"Using accurate P/E for {symbol}: {pe_ratio}")
+                                    except (ValueError, TypeError):
+                                        pe_ratio = None
                             except Exception as e:
                                 print(f"Warning: Could not calculate accurate P/E for {symbol}: {e}")
                         
                         # Thử lấy market cap từ company_info
                         try:
                             if 'market_cap' in company_info.columns:
-                                market_cap = company_info['market_cap'].iloc[-1]
+                                market_cap_val = company_info['market_cap'].iloc[-1]
+                                if market_cap_val is not None:
+                                    try:
+                                        market_cap = float(market_cap_val)
+                                        if market_cap <= 0:
+                                            market_cap = None
+                                    except (ValueError, TypeError):
+                                        market_cap = None
                         except Exception:
                             pass
                         
@@ -1599,7 +1637,8 @@ async def check_watchlist_and_alert(app: Application, user_id: int, chat_id: str
                     print(f"    ❓ {symbol}: No price data available")
                     continue
                 
-                print(f"    📊 {symbol}: Price={price:.2f}, Volume={vol:,.0f if vol else 'N/A'}")
+                vol_str = f"{vol:,.0f}" if vol is not None else "N/A"
+                print(f"    📊 {symbol}: Price={price:.2f}, Volume={vol_str}")
                 
                 # Check for buy signals
                 buy_signals = []
@@ -1611,8 +1650,9 @@ async def check_watchlist_and_alert(app: Application, user_id: int, chat_id: str
                     confidence += 0.3
                 
                 # 2. Volume spike (if volume data available)
-                if vol and vol_ma and vol > vol_ma * 1.5:
-                    buy_signals.append(f"📈 Volume tăng mạnh (+{((vol/vol_ma-1)*100):.1f}%)")
+                if vol is not None and vol_ma is not None and vol > vol_ma * 1.5:
+                    vol_change_pct = ((vol/vol_ma-1)*100)
+                    buy_signals.append(f"📈 Volume tăng mạnh (+{vol_change_pct:.1f}%)")
                     confidence += 0.2
                 
                 # 3. Technical analysis using prediction engine
@@ -1672,7 +1712,9 @@ async def check_watchlist_and_alert(app: Application, user_id: int, chat_id: str
                     print(f"    🚀 BUY SIGNAL: {symbol} - Confidence: {confidence*100:.0f}%")
                 
             except Exception as e:
+                import traceback
                 print(f"    ❌ Error analyzing {symbol}: {e}")
+                print(f"    📍 Full traceback: {traceback.format_exc()}")
         
         # Send alerts if any
         if any_alert and alerts:
@@ -2428,20 +2470,20 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "\n"
         "🧪 Test & Debug:\n"
         "/test_notification — gửi thông báo test ngay lập tức\n"
-        "/test_15s — bắt đầu test gửi thông báo mỗi 15 giây\n"
-        "/test_15s_stop — dừng test 15 giây\n"
+        "/test_15s — bắt đầu test gửi thông báo mỗi 30 giây\n"
+        "/test_15s_stop — dừng test 30 giây\n"
         "/test_job_status — xem trạng thái các job đang chạy\n"
         "/test_price <mã> — test lấy giá real-time\n"
         "/debug_pnl — debug tính toán lãi/lỗ chi tiết\n"
         "\n"
-        "📊 Tracking 15s (Real-time):\n"
-        "/track_15s — bắt đầu tracking portfolio mỗi 15 giây\n"
-        "/track_15s_stop — dừng tracking 15 giây\n"
+        "📊 Tracking 30s (Real-time):\n"
+        "/track_15s — bắt đầu tracking portfolio mỗi 30 giây\n"
+        "/track_15s_stop — dừng tracking 30 giây\n"
         "🔄 Hiển thị giá real-time, PnL, và tổng kết danh mục\n"
         "📈 Chỉ báo xu hướng: 📈 tăng, 📉 giảm, ➡️ không đổi\n"
         "\n"
         "🧠 Smart Tracking (Chỉ cảnh báo quan trọng):\n"
-        "/smart_track — bắt đầu smart tracking 15s\n"
+        "/smart_track — bắt đầu smart tracking 30s\n"
         "/smart_track_stop — dừng smart tracking\n"
         "🚨 Chỉ gửi thông báo khi: Stoploss, Take Profit, Volume bất thường\n"
         "💡 Gợi ý hành động cụ thể cho từng tình huống\n"
@@ -2700,7 +2742,7 @@ async def predict_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 if signals.get('sma_long'):
                     lines.append(f"  • MA200: {signals['sma_long']:.2f}")
             
-            if signals.get('rsi'):
+            if signals.get('rsi') is not None:
                 rsi_val = signals['rsi']
                 rsi_status = "Oversold" if rsi_val < 30 else "Overbought" if rsi_val > 70 else "Neutral"
                 lines.append(f"  • RSI: {rsi_val:.1f} ({rsi_status})")
@@ -3255,12 +3297,12 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             # Currently in trading hours - start immediately
             context.application.job_queue.run_repeating(
                 name=smart_job_name,
-                interval=timedelta(seconds=15),
+                interval=timedelta(seconds=30),
                 first=datetime.now(VN_TZ) + timedelta(seconds=2),  # Start after 2 seconds
                 callback=smart_track_15s_callback,
                 data=job_data,
             )
-            next_tracking = "Ngay bây giờ (15s)"
+            next_tracking = "Ngay bây giờ (30s)"
             trading_status = "🟢 Đang trong giờ giao dịch"
         else:
             # Outside trading hours - schedule for next trading day
@@ -3270,7 +3312,7 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             context.application.job_queue.run_repeating(
                 name=smart_job_name,
-                interval=timedelta(seconds=15),
+                interval=timedelta(seconds=30),
                 first=next_trading_start,
                 callback=smart_track_15s_callback,
                 data=job_data,
@@ -3296,7 +3338,7 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             f"• {', '.join([pos[0] for pos in positions])}\n\n"
             f"⏰ **Trạng thái:** {trading_status}\n"
             f"🔄 **Lần theo dõi tiếp theo:** {next_tracking}\n\n"
-            f"🧠 **Smart Tracking (15s trong giờ giao dịch 9:00-15:00):**\n"
+            f"🧠 **Smart Tracking (30s trong giờ giao dịch 9:00-11:30 & 13:00-15:00):**\n"
             f"• 🚨 Stoploss: Giá ≤ SL → Gợi ý SELL\n"
             f"• 🎯 Take Profit: Giá ≥ TP + Volume → Gợi ý chốt lời/mua thêm\n"
             f"• 📊 Volume Spike: Tăng >50% → Gợi ý mua thêm\n"
@@ -3311,7 +3353,7 @@ async def track_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             f"📈 **Jobs đã lên lịch:** {len(user_jobs)}\n\n"
             f"💡 **Lưu ý:**\n"
             f"• Bot chỉ gửi thông báo khi có tín hiệu quan trọng\n"
-            f"• Tracking 15s chỉ hoạt động trong giờ giao dịch\n"
+            f"• Tracking 30s chỉ hoạt động trong giờ giao dịch\n"
             f"• Sử dụng `/track_15s` để xem tất cả thông tin\n"
             f"• Sử dụng `/smart_track_stop` để tắt smart tracking",
             parse_mode=ParseMode.MARKDOWN
@@ -3401,7 +3443,7 @@ async def track_config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         f"**Commands:**\n"
         f"• `/track_on` - Bật tracking\n"
         f"• `/track_off` - Tắt tracking\n"
-        f"• `/track_15s` - Tracking real-time 15s\n"
+        f"• `/track_15s` - Tracking real-time 30s\n"
         f"• `/track_config` - Xem cấu hình",
         parse_mode=ParseMode.MARKDOWN
     )
@@ -3686,7 +3728,7 @@ async def test_notification_cmd(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def test_15s_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Start 15-second interval test notifications."""
+    """Start 30-second interval test notifications."""
     assert update.effective_user is not None
     assert update.effective_chat is not None
     user_id = update.effective_user.id
@@ -3701,31 +3743,31 @@ async def test_15s_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         for job in context.application.job_queue.get_jobs_by_name(test_job_name):
             job.schedule_removal()
         
-        # Schedule repeating test job every 15 seconds
+        # Schedule repeating test job every 30 seconds
         job_data = {'user_id': user_id, 'chat_id': chat_id}
         context.application.job_queue.run_repeating(
             name=test_job_name,
-            interval=timedelta(seconds=15),
+            interval=timedelta(seconds=30),
             first=datetime.now(VN_TZ) + timedelta(seconds=2),  # Start after 2 seconds
             callback=test_15s_callback,
             data=job_data,
         )
         
         await update.message.reply_text(
-            f"🧪 **Bắt đầu test 15 giây!**\n\n"
-            f"Bot sẽ gửi thông báo test mỗi 15 giây.\n"
+            f"🧪 **Bắt đầu test 30 giây!**\n\n"
+            f"Bot sẽ gửi thông báo test mỗi 30 giây.\n"
             f"⏰ Bắt đầu sau 2 giây...\n\n"
             f"Sử dụng `/test_15s_stop` để dừng test."
         )
-        print(f"✅ Started 15s test for user {user_id}")
+        print(f"✅ Started 30s test for user {user_id}")
         
     except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi khi bắt đầu test 15s: {str(e)}")
+        await update.message.reply_text(f"❌ Lỗi khi bắt đầu test 30s: {str(e)}")
         print(f"❌ Error in test_15s_cmd: {e}")
 
 
 async def test_15s_stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Stop 15-second interval test notifications."""
+    """Stop 30-second interval test notifications."""
     assert update.effective_user is not None
     user_id = update.effective_user.id
     
@@ -3739,33 +3781,33 @@ async def test_15s_stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         
         if jobs_removed > 0:
             await update.message.reply_text(
-                f"⏹️ **Đã dừng test 15 giây!**\n\n"
+                f"⏹️ **Đã dừng test 30 giây!**\n\n"
                 f"Đã xóa {jobs_removed} job test."
             )
             print(f"✅ Stopped 15s test for user {user_id}")
         else:
-            await update.message.reply_text("ℹ️ Không có test 15s nào đang chạy.")
+            await update.message.reply_text("ℹ️ Không có test 30s nào đang chạy.")
             
     except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi khi dừng test 15s: {str(e)}")
+        await update.message.reply_text(f"❌ Lỗi khi dừng test 30s: {str(e)}")
         print(f"❌ Error in test_15s_stop_cmd: {e}")
 
 
 async def test_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Callback for 15-second test notifications."""
+    """Callback for 30-second test notifications."""
     try:
         job = ctx.job
         user_id = job.data.get('user_id')
         chat_id = job.data.get('chat_id')
         
         if not user_id or not chat_id:
-            print("Test 15s callback: Missing user_id or chat_id")
+            print("Test 30s callback: Missing user_id or chat_id")
             return
         
         # Create test message
         current_time = datetime.now(VN_TZ)
         test_message = (
-            f"🧪 **TEST 15s NOTIFICATION**\n\n"
+            f"🧪 **TEST 30s NOTIFICATION**\n\n"
             f"⏰ Thời gian: {current_time.strftime('%H:%M:%S %d/%m/%Y')}\n"
             f"👤 User ID: {user_id}\n"
             f"💬 Chat ID: {chat_id}\n"
@@ -3783,7 +3825,7 @@ async def test_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
         # Update counter
         job.data['count'] = job.data.get('count', 0) + 1
         
-        print(f"✅ Test 15s notification #{job.data.get('count', 1)} sent to user {user_id}")
+        print(f"✅ Test 30s notification #{job.data.get('count', 1)} sent to user {user_id}")
         
     except Exception as e:
         print(f"❌ Error in test_15s_callback: {e}")
@@ -3795,7 +3837,7 @@ async def test_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             if user_id and chat_id:
                 await ctx.application.bot.send_message(
                     chat_id=chat_id,
-                    text=f"❌ Lỗi trong test 15s: {str(e)}"
+                    text=f"❌ Lỗi trong test 30s: {str(e)}"
                 )
         except Exception as e2:
             print(f"❌ Error sending error message: {e2}")
@@ -3842,7 +3884,7 @@ async def test_job_status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def track_15s_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Start 15-second interval portfolio tracking."""
+    """Start 30-second interval portfolio tracking."""
     assert update.effective_user is not None
     assert update.effective_chat is not None
     user_id = update.effective_user.id
@@ -3867,32 +3909,32 @@ async def track_15s_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         for job in context.application.job_queue.get_jobs_by_name(track_job_name):
             job.schedule_removal()
         
-        # Schedule repeating tracking job every 15 seconds
+        # Schedule repeating tracking job every 30 seconds
         job_data = {'user_id': user_id, 'chat_id': chat_id}
         context.application.job_queue.run_repeating(
             name=track_job_name,
-            interval=timedelta(seconds=15),
+            interval=timedelta(seconds=30),
             first=datetime.now(VN_TZ) + timedelta(seconds=2),  # Start after 2 seconds
             callback=track_15s_callback,
             data=job_data,
         )
         
         await update.message.reply_text(
-            f"📊 **Bắt đầu tracking 15 giây!**\n\n"
-            f"Bot sẽ theo dõi {len(positions)} cổ phiếu mỗi 15 giây:\n"
+            f"📊 **Bắt đầu tracking 30 giây!**\n\n"
+            f"Bot sẽ theo dõi {len(positions)} cổ phiếu mỗi 30 giây:\n"
             f"• {', '.join([pos[0] for pos in positions])}\n\n"
             f"⏰ Bắt đầu sau 2 giây...\n\n"
             f"Sử dụng `/track_15s_stop` để dừng tracking."
         )
-        print(f"✅ Started 15s portfolio tracking for user {user_id}")
+        print(f"✅ Started 30s portfolio tracking for user {user_id}")
         
     except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi khi bắt đầu tracking 15s: {str(e)}")
+        await update.message.reply_text(f"❌ Lỗi khi bắt đầu tracking 30s: {str(e)}")
         print(f"❌ Error in track_15s_cmd: {e}")
 
 
 async def track_15s_stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Stop 15-second interval portfolio tracking."""
+    """Stop 30-second interval portfolio tracking."""
     assert update.effective_user is not None
     user_id = update.effective_user.id
     
@@ -3906,20 +3948,20 @@ async def track_15s_stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         if jobs_removed > 0:
             await update.message.reply_text(
-                f"⏹️ **Đã dừng tracking 15 giây!**\n\n"
+                f"⏹️ **Đã dừng tracking 30 giây!**\n\n"
                 f"Đã xóa {jobs_removed} job tracking."
             )
             print(f"✅ Stopped 15s portfolio tracking for user {user_id}")
         else:
-            await update.message.reply_text("ℹ️ Không có tracking 15s nào đang chạy.")
+            await update.message.reply_text("ℹ️ Không có tracking 30s nào đang chạy.")
             
     except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi khi dừng tracking 15s: {str(e)}")
+        await update.message.reply_text(f"❌ Lỗi khi dừng tracking 30s: {str(e)}")
         print(f"❌ Error in track_15s_stop_cmd: {e}")
 
 
 async def smart_track_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Start smart 15-second interval portfolio tracking - only alerts on important signals."""
+    """Start smart 30-second interval portfolio tracking - only alerts on important signals."""
     assert update.effective_user is not None
     assert update.effective_chat is not None
     user_id = update.effective_user.id
@@ -3945,11 +3987,11 @@ async def smart_track_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         for job in context.application.job_queue.get_jobs_by_name(smart_job_name):
             job.schedule_removal()
         
-        # Schedule repeating smart tracking job every 15 seconds
+        # Schedule repeating smart tracking job every 30 seconds
         job_data = {'user_id': user_id, 'chat_id': chat_id}
         context.application.job_queue.run_repeating(
             name=smart_job_name,
-            interval=timedelta(seconds=15),
+            interval=timedelta(seconds=30),
             first=datetime.now(VN_TZ) + timedelta(seconds=2),  # Start after 2 seconds
             callback=smart_track_15s_callback,
             data=job_data,
@@ -3975,7 +4017,7 @@ async def smart_track_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def smart_track_stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Stop smart 15-second interval portfolio tracking."""
+    """Stop smart 30-second interval portfolio tracking."""
     assert update.effective_user is not None
     user_id = update.effective_user.id
     
@@ -4002,20 +4044,20 @@ async def smart_track_stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Callback for 15-second portfolio tracking."""
+    """Callback for 30-second portfolio tracking."""
     try:
         job = ctx.job
         user_id = job.data.get('user_id')
         chat_id = job.data.get('chat_id')
         
         if not user_id or not chat_id:
-            print("Track 15s callback: Missing user_id or chat_id")
+            print("Track 30s callback: Missing user_id or chat_id")
             return
         
         # Get user's positions
         positions = await get_positions(user_id)
         if not positions:
-            print(f"Track 15s: No positions found for user {user_id}")
+            print(f"Track 30s: No positions found for user {user_id}")
             return
         
         # Get current time
@@ -4064,7 +4106,7 @@ async def track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             lines.append(f"\n💰 **Tổng PnL**: {total_pnl:+.0f} ({total_pnl_pct:+.1f}%)")
         
         # Add tracking info
-        lines.append(f"\n🔄 Tracking #{job.data.get('count', 1)} | Next: 15s")
+        lines.append(f"\n🔄 Tracking #{job.data.get('count', 1)} | Next: 30s")
         
         # Send tracking message
         message_text = "\n".join(lines)
@@ -4077,7 +4119,7 @@ async def track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
         # Update counter
         job.data['count'] = job.data.get('count', 0) + 1
         
-        print(f"✅ Track 15s notification #{job.data.get('count', 1)} sent to user {user_id}")
+        print(f"✅ Track 30s notification #{job.data.get('count', 1)} sent to user {user_id}")
         
     except Exception as e:
         print(f"❌ Error in track_15s_callback: {e}")
@@ -4089,41 +4131,45 @@ async def track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             if user_id and chat_id:
                 await ctx.application.bot.send_message(
                     chat_id=chat_id,
-                    text=f"❌ Lỗi trong tracking 15s: {str(e)}"
+                    text=f"❌ Lỗi trong tracking 30s: {str(e)}"
                 )
         except Exception as e2:
             print(f"❌ Error sending error message: {e2}")
 
 
 async def smart_track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Callback for smart 15-second portfolio tracking - only alerts on important signals."""
+    """Callback for smart 30-second portfolio tracking - only alerts on important signals."""
     try:
         job = ctx.job
         user_id = job.data.get('user_id')
         chat_id = job.data.get('chat_id')
         
         if not user_id or not chat_id:
-            print("Smart track 15s callback: Missing user_id or chat_id")
+            print("Smart track 30s callback: Missing user_id or chat_id")
             return
         
         # Get user's positions
         positions = await get_positions(user_id)
         if not positions:
-            print(f"Smart track 15s: No positions found for user {user_id}")
+            print(f"Smart track 30s: No positions found for user {user_id}")
             return
         
         # Get tracking settings
         enabled, sl_pct, tp_pct, vol_ma_days = await get_tracking_settings(user_id)
         if not enabled:
-            print(f"Smart track 15s: Tracking disabled for user {user_id}")
+            print(f"Smart track 30s: Tracking disabled for user {user_id}")
             return
         
         # Get current time
         current_time = datetime.now(VN_TZ)
         current_hour = current_time.hour
+        current_minute = current_time.minute
         
-        # Only run during trading hours (9:00-15:00 VN time)
-        if not (9 <= current_hour < 15):
+        # Only run during trading hours (9:00-11:30 and 13:00-15:00 VN time)
+        is_morning_session = (current_hour == 9) or (current_hour == 10) or (current_hour == 11 and current_minute <= 30)
+        is_afternoon_session = (current_hour == 13) or (current_hour == 14) or (current_hour == 15 and current_minute == 0)
+        
+        if not (is_morning_session or is_afternoon_session):
             print(f"🔕 Smart track: Outside trading hours ({current_time.strftime('%H:%M')}) - skipping")
             return
         
@@ -4310,7 +4356,7 @@ async def smart_track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             # Create alert message
             alert_lines = [f"🚨 **SMART ALERTS - {current_time.strftime('%H:%M:%S')}**\n"]
             alert_lines.extend(alerts)
-            alert_lines.append(f"\n🔄 Smart Tracking #{current_count} | Next: 15s")
+            alert_lines.append(f"\n🔄 Smart Tracking #{current_count} | Next: 30s")
             
             message_text = "\n".join(alert_lines)
             await ctx.application.bot.send_message(
