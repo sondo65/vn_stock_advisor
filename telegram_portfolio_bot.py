@@ -64,6 +64,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 # Vietnam timezone for all scheduling
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
+# Simple in-memory caches to reduce repeated peer/industry lookups during a run
+INDUSTRY_PE_CACHE: dict[str, float] = {}
+INDUSTRY_PEERS_CACHE: dict[str, list[str]] = {}
+
 
 class MarketData:
     @staticmethod
@@ -502,8 +506,32 @@ class IntrinsicValueCalculator:
                 eps = net_income / shares_outstanding
             if (bvps is None or bvps <= 0) and total_equity > 0 and shares_outstanding > 0:
                 bvps = total_equity / shares_outstanding
-            if (roe is None or roe <= 0) and total_equity > 0:
-                roe = (net_income / total_equity) if total_equity > 0 else 0.0
+            if (roe is None or roe <= 0):
+                # Tính ROE từ Average Equity 2 năm gần nhất nếu có
+                try:
+                    if 'yearReport' in balance.columns:
+                        eq_col = None
+                        for c in ["OWNER'S EQUITY(Bn.VND)", 'Capital and reserves (Bn. VND)']:
+                            if c in balance.columns:
+                                eq_col = c
+                                break
+                        if eq_col is not None:
+                            bal_eq = balance[['yearReport', eq_col]].dropna().sort_values('yearReport')
+                            last_two = bal_eq.tail(2)
+                            if len(last_two) == 2:
+                                eq_vals = (last_two[eq_col].astype(float) * 1e9).tolist()
+                                avg_equity = (eq_vals[0] + eq_vals[1]) / 2.0
+                                if avg_equity > 0:
+                                    roe = float(net_income) / avg_equity
+                            elif len(last_two) == 1:
+                                eq_val = float(last_two[eq_col].iloc[0]) * 1e9
+                                if eq_val > 0:
+                                    roe = float(net_income) / eq_val
+                except Exception:
+                    pass
+                # Cuối cùng, fallback về equity hiện tại nếu vẫn thiếu
+                if (roe is None or roe <= 0) and total_equity > 0:
+                    roe = (net_income / total_equity)
 
             # Tích hợp PECalculator để tinh chỉnh EPS/price/shares nếu có
             try:
@@ -758,13 +786,13 @@ class IntrinsicValueCalculator:
         if eps_val <= 0:
             return None
         
-        target_pe = target_pe or IntrinsicValueCalculator.DEFAULT_PE_RATIO
-        
-        # Điều chỉnh theo nhóm ngành: bất động sản → 18–20
-        # Heuristic theo mã: VIC, VHM, VRE, NVL, PDR, KDH
+        # Lấy P/E ngành nếu không truyền
+        if target_pe is None:
+            try:
+                target_pe = IntrinsicValueCalculator.get_industry_target_pe(financial_data.get('symbol','')) or IntrinsicValueCalculator.DEFAULT_PE_RATIO
+            except Exception:
+                target_pe = IntrinsicValueCalculator.DEFAULT_PE_RATIO
         symbol = financial_data.get('symbol', '')
-        if symbol in {'VIC','VHM','VRE','NVL','PDR','KDH'}:
-            target_pe = 19.0
         
         # Điều chỉnh P/E dựa trên ROE
         roe = financial_data.get('roe', 0)
@@ -773,7 +801,11 @@ class IntrinsicValueCalculator:
         elif roe < 0.10:  # ROE < 10%
             target_pe *= 0.9
             
-        intrinsic_value = eps_val * target_pe
+        # EPS forward nhẹ (0–20%)
+        growth = financial_data.get('avg_growth_rate', 0) or 0
+        growth = max(0.0, min(float(growth), 0.20))
+        eps_forward = eps_val * (1.0 + growth)
+        intrinsic_value = eps_forward * target_pe
         if intrinsic_value <= 0:
             return None
         
@@ -781,9 +813,98 @@ class IntrinsicValueCalculator:
             'method': 'P/E',
             'intrinsic_value': intrinsic_value,
             'target_pe': target_pe,
-            'eps': eps_val,
+            'eps': eps_forward,
             'roe': roe
         }
+
+    @staticmethod
+    def get_industry_target_pe(symbol: str) -> Optional[float]:
+        try:
+            if not symbol:
+                return None
+            import vnstock as vs
+            import pandas as pd
+            import json
+            import unicodedata
+            import os as _os
+
+            # Helper to normalize strings: lowercase, strip accents and spaces
+            def _normalize_text(text: str) -> str:
+                try:
+                    text = text.strip().lower()
+                    text = unicodedata.normalize('NFD', text)
+                    text = ''.join(ch for ch in text if unicodedata.category(ch) != 'Mn')
+                    return ' '.join(text.split())
+                except Exception:
+                    return text.strip().lower()
+
+            # Discover industry for the symbol from vnstock (minimal calls)
+            vn = vs.Vnstock()
+            industry_raw = None
+            for src in ['TCBS', 'VCI']:
+                try:
+                    st = vn.stock(symbol=symbol, source=src)
+                    ov = st.company.overview()
+                    if ov is not None and not ov.empty:
+                        for col in ov.columns:
+                            col_l = col.lower()
+                            if ('industry' in col_l) or ('nganh' in col_l) or ('sector' in col_l):
+                                val = ov.iloc[0][col]
+                                if pd.notna(val) and str(val).strip():
+                                    industry_raw = str(val).strip()
+                                    break
+                    if industry_raw:
+                        break
+                except Exception:
+                    continue
+            if not industry_raw:
+                return None
+
+            # Load static PE/PB industry averages from local JSON
+            json_path = _os.path.join(_os.path.dirname(__file__), 'knowledge', 'PE_PB_industry_average.json')
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                data = payload.get('data', {}) if isinstance(payload, dict) else {}
+            except Exception:
+                data = {}
+            if not data:
+                return None
+
+            # Build normalized lookup map once per process
+            if '_IND_PE_STATIC_MAP' not in globals():
+                normalized_map = {}
+                for k, v in data.items():
+                    try:
+                        if isinstance(v, dict) and 'PE' in v and v['PE'] is not None:
+                            normalized_map[_normalize_text(k)] = float(v['PE'])
+                    except Exception:
+                        continue
+                globals()['_IND_PE_STATIC_MAP'] = normalized_map
+            normalized_map = globals().get('_IND_PE_STATIC_MAP', {})
+            if not normalized_map:
+                return None
+
+            # Try exact normalized match, then fuzzy contains match
+            ind_norm = _normalize_text(industry_raw)
+            target_pe = None
+            if ind_norm in normalized_map:
+                target_pe = normalized_map[ind_norm]
+            else:
+                # Simple contains-based fuzzy matching
+                for key_norm, pe_val in normalized_map.items():
+                    if key_norm in ind_norm or ind_norm in key_norm:
+                        target_pe = pe_val
+                        break
+
+            if target_pe is None:
+                return None
+
+            # Cache by the raw industry name to avoid re-reading
+            INDUSTRY_PE_CACHE[industry_raw] = float(target_pe)
+            return float(target_pe)
+        except Exception:
+            return None
     
     @staticmethod
     def calculate_graham_intrinsic_value(financial_data: Dict[str, Any],
@@ -5258,22 +5379,40 @@ async def intrinsic_value_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Calculate safety margin
         current_price = financial_data['current_price']
         intrinsic_value = results.get('Weighted', {}).get('intrinsic_value') or list(results.values())[0]['intrinsic_value']
-        
+
         safety_analysis = IntrinsicValueCalculator.calculate_safety_margin(intrinsic_value, current_price)
-        
-        # Compute explicit buy zone and upside guidance
-        buy_zone_low = intrinsic_value * 0.70
-        buy_zone_high = intrinsic_value * 0.80
-        upside_pct = ((intrinsic_value / current_price) - 1) * 100 if current_price > 0 else None
-        
-        # Fine-grained recommendation based on buy zones
+
+        # Compute explicit buy zone using a more realistic anchor when PE/DCF are unreliable
+        # Rule: If DCF missing and ROE is very low (<8%), anchor MoS on Graham when available,
+        # otherwise ensure MoS baseline is at least PB to avoid unrealistically low zones.
+        mos_baseline = intrinsic_value
+        try:
+            roe_val = float(financial_data.get('roe') or 0.0)
+        except Exception:
+            roe_val = 0.0
+        dcf_exists = 'DCF' in results and results['DCF'] is not None
+        if not dcf_exists and roe_val < 0.08:
+            if 'Graham' in results and results['Graham'] and results['Graham'].get('intrinsic_value'):
+                mos_baseline = max(mos_baseline, float(results['Graham']['intrinsic_value']))
+        # Never below PB baseline when PB exists
+        if 'PB' in results and results['PB'] and results['PB'].get('intrinsic_value'):
+            try:
+                mos_baseline = max(mos_baseline, float(results['PB']['intrinsic_value']))
+            except Exception:
+                pass
+
+        buy_zone_low = mos_baseline * 0.70
+        buy_zone_high = mos_baseline * 0.80
+        upside_pct = ((mos_baseline / current_price) - 1) * 100 if current_price > 0 else None
+
+        # Fine-grained recommendation based on buy zones (relative to MoS baseline)
         zone_reco = None
         if current_price > 0:
             if current_price <= buy_zone_low:
                 zone_reco = "STRONG BUY (≤70% intrinsic)"
             elif current_price <= buy_zone_high:
                 zone_reco = "BUY (≤80% intrinsic)"
-            elif current_price <= intrinsic_value * 0.90:
+            elif current_price <= mos_baseline * 0.90:
                 zone_reco = "WATCH (≤90% intrinsic)"
             else:
                 zone_reco = "AVOID/SELL (>90% intrinsic)"
