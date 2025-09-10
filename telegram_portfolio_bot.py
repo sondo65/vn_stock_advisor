@@ -3668,6 +3668,48 @@ async def my_style_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 # Watchlist commands
+def parse_price_arg(text: str) -> Optional[float]:
+    """Parse a price string accepting both comma and dot decimals and thousand separators.
+
+    Examples accepted: "14.5", "14,5", "1,234.56", "1.234,56", "20000".
+    Returns float on success, or None if not parseable.
+    """
+    try:
+        s = text.strip()
+        if not s:
+            return None
+        has_comma = "," in s
+        has_dot = "." in s
+        if has_comma and has_dot:
+            # Decide decimal separator by whichever appears last
+            last_comma = s.rfind(",")
+            last_dot = s.rfind(".")
+            if last_comma > last_dot:
+                # Treat "," as decimal, "." as thousand sep
+                s = s.replace(".", "")
+                s = s.replace(",", ".")
+            else:
+                # Treat "." as decimal, "," as thousand sep
+                s = s.replace(",", "")
+        elif has_comma and not has_dot:
+            # Treat comma as decimal separator
+            s = s.replace(",", ".")
+        else:
+            # Only dot or digits; remove stray thousand separators just in case (none expected here)
+            # No change needed
+            pass
+        return float(s)
+    except Exception:
+        return None
+
+def format_target_price_for_display(price: float) -> str:
+    """Format price keeping decimals only when needed (e.g., 14.5 -> 14.50, 21.0 -> 21)."""
+    try:
+        if float(price).is_integer():
+            return f"{price:,.0f}"
+        return f"{price:,.2f}"
+    except Exception:
+        return str(price)
 async def watch_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Thêm cổ phiếu vào danh sách theo dõi"""
     assert update.effective_user is not None
@@ -3689,17 +3731,16 @@ async def watch_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     target_price = None
     notes = None
     
-    # Parse target price if provided
+    # Parse target price if provided (accept dot/comma decimals)
     if len(context.args) > 1:
-        try:
-            target_price = float(context.args[1])
-        except ValueError:
-            # If second arg is not a number, treat it as notes
+        maybe_price = parse_price_arg(context.args[1])
+        if maybe_price is not None:
+            target_price = maybe_price
+            if len(context.args) > 2:
+                notes = " ".join(context.args[2:])
+        else:
+            # If second arg is not a number, treat remaining as notes
             notes = " ".join(context.args[1:])
-    
-    # Parse notes if target price was provided
-    if len(context.args) > 2 and target_price is not None:
-        notes = " ".join(context.args[2:])
     
     # Check if already in portfolio
     positions = await get_positions(user_id)
@@ -3712,8 +3753,8 @@ async def watch_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     
     if success:
         msg = f"✅ Đã thêm {symbol} vào danh sách theo dõi"
-        if target_price:
-            msg += f"\n💰 Giá mục tiêu: {target_price:,.0f}"
+        if target_price is not None:
+            msg += f"\n💰 Giá mục tiêu: {format_target_price_for_display(target_price)}"
         if notes:
             msg += f"\n📝 Ghi chú: {notes}"
         msg += "\n\n💡 Bot sẽ phân tích và gợi ý mua khi có tín hiệu tốt."
@@ -3770,8 +3811,8 @@ async def watch_list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     for i, (symbol, target_price, notes, added_at) in enumerate(watchlist, 1):
         lines.append(f"**{i}. {symbol}**")
-        if target_price:
-            lines.append(f"   💰 Giá mục tiêu: {target_price:,.0f}")
+        if target_price is not None:
+            lines.append(f"   💰 Giá mục tiêu: {format_target_price_for_display(target_price)}")
         if notes:
             lines.append(f"   📝 Ghi chú: {notes}")
         
