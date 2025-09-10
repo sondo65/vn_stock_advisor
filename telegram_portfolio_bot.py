@@ -1299,60 +1299,55 @@ async def clear_watchlist(user_id: int) -> bool:
 
 
 async def get_price_and_volume(symbol: str, vol_ma_days: int) -> tuple[Optional[float], Optional[float], Optional[float]]:
-    # Get real-time price and volume data
+    # Get real-time price and historical volume data
     try:
         from vnstock import Quote
         
-        # Get real-time data
         quote = Quote(source='VCI', symbol=symbol)
-        realtime_data = quote.intraday()
         
+        # Get real-time price
+        realtime_data = quote.intraday()
+        price = None
         if realtime_data is not None and len(realtime_data) > 0:
-            # Get latest real-time price and volume
             latest_data = realtime_data.iloc[-1]
             price = float(latest_data.get('close', latest_data.get('price', 0)))
-            volume = float(latest_data.get('volume', 0))
+            print(f"    🔍 Getting realtime price for {symbol}: {price:.2f}")
+        
+        # Get historical volume data (more reliable than real-time)
+        today = datetime.now().date()
+        start_date = (today - timedelta(days=max(20, vol_ma_days * 2))).strftime("%Y-%m-%d")
+        end_date = today.strftime("%Y-%m-%d")
+        
+        df = quote.history(start=start_date, end=end_date, interval="1D")
+        
+        if df is not None and len(df) > 0 and price is not None:
+            # Get today's volume from historical data
+            today_volume = float(df.iloc[-1]['volume'])
+            print(f"    📊 Historical: Price={price:.2f}, Volume={today_volume:.0f}")
             
-            print(f"    🔍 Getting realtime data for {symbol}")
-            print(f"    📊 Realtime: Price={price:.2f}, Volume={volume:.0f}")
-            
-            if price > 0 and volume > 0:
-                # Get historical volume data for MA calculation
+            if price > 0 and today_volume > 0:
+                # Calculate MA from the same historical data
                 try:
-                    today = datetime.now().date()
-                    start_date = (today - timedelta(days=max(20, vol_ma_days * 2))).strftime("%Y-%m-%d")
-                    end_date = today.strftime("%Y-%m-%d")
-                    
-                    df = quote.history(
-                        start=start_date,
-                        end=end_date,
-                        interval="1D"
-                    )
-                    
-                    if df is not None and len(df) > 0:
-                        print(f"    📊 Historical data: {len(df)} rows for MA calculation")
-                        df = df.dropna(subset=["volume"])  # type: ignore[attr-defined]
-                        if len(df) > 0:
-                            if len(df) >= vol_ma_days:
-                                ma_vol = float(df["volume"].tail(vol_ma_days).mean())  # type: ignore[attr-defined]
-                            else:
-                                ma_vol = float(df["volume"].mean())  # type: ignore[attr-defined]
-                            print(f"    ✅ Volume MA: {ma_vol:.0f}")
-                            return (price, volume, ma_vol)
+                    df_ma = df.dropna(subset=["volume"])  # type: ignore[attr-defined]
+                    if len(df_ma) > 0:
+                        if len(df_ma) >= vol_ma_days:
+                            ma_vol = float(df_ma["volume"].tail(vol_ma_days).mean())  # type: ignore[attr-defined]
                         else:
-                            print(f"    ❌ No volume data after dropna")
+                            ma_vol = float(df_ma["volume"].mean())  # type: ignore[attr-defined]
+                        print(f"    ✅ Volume MA: {ma_vol:.0f}")
+                        return (price, today_volume, ma_vol)
                     else:
-                        print(f"    ❌ No historical data for MA")
+                        print(f"    ❌ No volume data after dropna")
                 except Exception as e:
                     print(f"    ❌ Error getting volume MA: {e}")
                 
-                # Return real-time data even without MA
-                print(f"    ✅ Using realtime volume without MA")
-                return (price, volume, None)
+                # Return historical data even without MA
+                print(f"    ✅ Using historical volume without MA")
+                return (price, today_volume, None)
             else:
-                print(f"    ❌ Invalid realtime data: price={price}, volume={volume}")
+                print(f"    ❌ Invalid data: price={price}, volume={today_volume}")
         else:
-            print(f"    ❌ No realtime data returned")
+            print(f"    ❌ No data returned")
             
     except Exception as e:
         print(f"    ❌ Error getting realtime data: {e}")
@@ -4222,33 +4217,32 @@ async def smart_track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
                         if not isinstance(df_history.index, pd.DatetimeIndex):
                             df_history.index = pd.to_datetime(df_history.index)
                         
-                        # Calculate time-based volume adjustment factor
-                        # Early morning (9:00-10:00): lower volume expected
-                        # Mid morning (10:00-11:00): normal volume
-                        # Afternoon (13:00-15:00): higher volume expected
+                        # Calculate time-based volume adjustment factor for CUMULATIVE volume
+                        # Since volume is cumulative, we need to estimate how much volume should have accumulated by this time
+                        # Based on typical VN market volume patterns throughout the day
                         time_factor = 1.0
-                        if current_hour == 9:  # 9:00-9:59
-                            time_factor = 0.3  # 30% of daily average
-                        elif current_hour == 10:  # 10:00-10:59
-                            time_factor = 0.6  # 60% of daily average
-                        elif current_hour == 11:  # 11:00-11:59
-                            time_factor = 0.8  # 80% of daily average
-                        elif current_hour == 13:  # 13:00-13:59
-                            time_factor = 1.2  # 120% of daily average
-                        elif current_hour == 14:  # 14:00-14:59
-                            time_factor = 1.5  # 150% of daily average
+                        if current_hour == 9:  # 9:00-9:59 (first hour)
+                            time_factor = 0.15  # 15% of daily average by 9:59
+                        elif current_hour == 10:  # 10:00-10:59 (second hour)
+                            time_factor = 0.35  # 35% of daily average by 10:59
+                        elif current_hour == 11:  # 11:00-11:59 (third hour)
+                            time_factor = 0.55  # 55% of daily average by 11:59
+                        elif current_hour == 13:  # 13:00-13:59 (afternoon first hour)
+                            time_factor = 0.70  # 70% of daily average by 13:59
+                        elif current_hour == 14:  # 14:00-14:59 (afternoon second hour)
+                            time_factor = 0.90  # 90% of daily average by 14:59
                         
-                        # Get historical volumes and calculate expected volume for this time
+                        # Get historical volumes and calculate expected CUMULATIVE volume for this time
                         historical_volumes = df_history['volume'].dropna()
                         if len(historical_volumes) > 0:
                             daily_avg_volume = float(historical_volumes.mean())
-                            expected_volume = daily_avg_volume * time_factor
+                            expected_cumulative_volume = daily_avg_volume * time_factor
                             
-                            # Calculate z-score based on expected volume for this time
+                            # Calculate z-score based on expected CUMULATIVE volume for this time
                             vol_std = float(historical_volumes.std())
-                            z_score = (vol - expected_volume) / vol_std if vol_std > 0 else 0
+                            z_score = (vol - expected_cumulative_volume) / vol_std if vol_std > 0 else 0
                             
-                            print(f"    📊 {symbol}: Vol={vol:,.0f}, Expected={expected_volume:,.0f} (factor={time_factor:.1f}), Z-score={z_score:.2f}")
+                            print(f"    📊 {symbol}: Vol={vol:,.0f}, Expected={expected_cumulative_volume:,.0f} (factor={time_factor:.1f}), Z-score={z_score:.2f}")
                             
                             # More reasonable thresholds for time-based comparison
                             if z_score > 2.5:  # Volume significantly higher than expected for this time
@@ -4257,20 +4251,20 @@ async def smart_track_15s_callback(ctx: ContextTypes.DEFAULT_TYPE) -> None:
                                     f"📊 **VOLUME SPIKE - {symbol}**\n"
                                     f"💰 Giá: {price:.2f}\n"
                                     f"📈 Volume: {vol:,.0f} (Z-score: {z_score:.2f})\n"
-                                    f"📊 Expected for {current_hour:02d}:{current_minute:02d}: {expected_volume:,.0f}\n"
+                                    f"📊 Expected for {current_hour:02d}:{current_minute:02d}: {expected_cumulative_volume:,.0f}\n"
                                     f"📈 Change: +{vol_change_pct:.1f}% vs MA\n"
                                     f"💡 **Gợi ý: Volume cao bất thường so với cùng giờ - có thể có tin tức!**"
                                 )
                                 print(f"    📊 VOLUME SPIKE: {symbol} - Z-score: {z_score:.2f} (Volume: {vol:,.0f})")
                             
-                            elif z_score < -2.0 and vol < (expected_volume * 0.5):  # Very low volume
+                            elif z_score < -2.0 and vol < (expected_cumulative_volume * 0.3):  # Very low volume (30% of expected)
                                 any_alert = True
                                 alerts.append(
                                     f"📉 **VOLUME DROP - {symbol}**\n"
                                     f"💰 Giá: {price:.2f}\n"
                                     f"📉 Volume: {vol:,.0f} (Z-score: {z_score:.2f})\n"
-                                    f"📊 Expected for {current_hour:02d}:{current_minute:02d}: {expected_volume:,.0f}\n"
-                                    f"📉 Change: {vol_change_pct:.1f}% vs MA\n"
+                                    f"📊 Expected for {current_hour:02d}:{current_minute:02d}: {expected_cumulative_volume:,.0f}\n"
+                                    f"📉 Change: {vol_change_pct:.1f}% vs Expected\n"
                                     f"⚠️ **Gợi ý: Volume cực thấp so với cùng giờ - có thể có áp lực bán!**"
                                 )
                                 print(f"    📉 VOLUME DROP: {symbol} - Z-score: {z_score:.2f} (Volume: {vol:,.0f})")
